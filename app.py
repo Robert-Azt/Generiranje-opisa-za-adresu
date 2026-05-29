@@ -271,8 +271,13 @@ def identify_location(api_key, location_address, lat, lon, coords_input=False):
         )
     else:
         lokacija_opis = (
-            f"ADRESA: {location_address}\n"
-            f"Koordinate: {lat:.6f}, {lon:.6f}"
+            f"UNESENA ADRESA: {location_address}\n"
+            f"Koordinate: {lat:.6f}, {lon:.6f}\n\n"
+            "VAZNO: Korisnik je unio adresu s kucnim brojem. "
+            "OBAVEZNO pretrazi web za tocnu adresu i saznaj koji OBJEKT se nalazi na toj adresi "
+            "(banka, trgovina, skola, stambena zgrada, ured, restoran, hotel...). "
+            "Adresa s kucnim brojem gotovo uvijek ukazuje na konkretan objekt — ne pretpostavljaj da je to samo ulica ili krizanje. "
+            "Pretrazi npr. naziv firme, institucije ili objekta na toj adresi."
         )
 
     prompt = "\n".join([
@@ -280,16 +285,19 @@ def identify_location(api_key, location_address, lat, lon, coords_input=False):
         "",
         lokacija_opis,
         "",
-        "Pretrazi web i saznaj:",
-        "1. Sto se TOCNO nalazi na ovoj lokaciji? (naziv objekta, tip, krizanje ulica...)",
-        "2. Koje ulice okruzuju lokaciju — navedi tocna imena",
-        "3. Kategorije sadrzaja u okolici (genericki: stambene zgrade, poslovni objekti, parkovi... — bez konkretnih imena kaficaa)",
-        "4. Javni prijevoz — tramvaj/bus linije i stanice u blizini",
+        "Upute za pretragu:",
+        "1. Ako je unesena adresa s kucnim brojem: PRVO pretrazi koji konkretan objekt (firma, institucija, zgrada) se nalazi tocno na toj adresi.",
+        "   Primjeri pretrage: naziv ulice + broj + grad, ili adresa + djelatnost.",
+        "   Ako je to banka — navedi naziv banke. Ako je trgovina — navedi naziv. Ako je stambena zgrada — navedi to.",
+        "2. Ako su unesene samo koordinate ili nema kucnog broja: identificiraj sto je na lokaciji (krizanje, park, otvorena povrsina...)",
+        "3. Koje ulice okruzuju lokaciju — navedi tocna imena",
+        "4. Kategorije sadrzaja u okolici (genericki: stambene zgrade, poslovni objekti, parkovi... — bez konkretnih imena kaficaa)",
+        "5. Javni prijevoz — tramvaj/bus linije i stanice u blizini",
         "",
         "Odgovori ISKLJUCIVO ovim JSON objektom:",
         "{",
-        '  "objekt_na_adresi": "konkretan naziv i tip objekta, ili opis krizanja ulica ako nema objekta",',
-        '  "tip_objekta": "jedna kategorija: stambena zgrada / poslovni objekt / sportski objekt / javna ustanova / skola / bolnica / park / prometnica-krizanje / industrijsko postrojenje / misovito",',
+        '  "objekt_na_adresi": "puni naziv i tip objekta (npr. PBZ banka, poslovna zgrada; ili NK Lokomotiva, novi stadion u izgradnji; ili krizanje Ozaljske i Nehajske ulice)",',
+        '  "tip_objekta": "jedna kategorija: stambena zgrada / poslovni objekt / banka / sportski objekt / javna ustanova / skola / bolnica / park / prometnica-krizanje / ugostiteljski objekt / trgovina / industrijsko postrojenje / misovito",',
         '  "okolne_ulice": "stvarna imena ulica odvojena zarezom",',
         '  "kategorije_okolice": "genericki opis sadrzaja u okolici bez konkretnih naziva objekata",',
         '  "javni_prijevoz": "opis javnog prijevoza s linijama i stanicama",',
@@ -393,7 +401,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
         "- Za sadrzaje u okolici koristi opce kategorije, ne konkretna imena ugostiteljskih i slicnih objekata",
         "- 3-5 recenica po polju, cist tekst bez formatiranja",
         "- KRITИЧНО: vrijednosti u JSON-u NE smiju sadrzavati navodnike. Umjesto navodnika koristi zareze ili zagrade.",
-        "- Ako je tip objekta park, krizanje, cesta, zelena povrsina ili druga lokacija BEZ GRADEVINE: za svako polje koje se ne moze primijeniti napisi jednu jasnu recenicu koja to konstatira. Primjeri za PARK: vrsta materijala -- U parku nema gradjevinskog objekta pa se vrsta materijala odnosi na podloge staza i parkovnog mobilijara. ostale instalacije -- U parku nema plinskih, vodovodnih ni kanalizacijskih instalacija. nacin zakljucavanja -- Park je javni prostor koji se fizicki ne zakljucava i otvoren je 24 sata dnevno. tjelesna zastita -- U parku se ne provodi tjelesna zastita. Primjeri za KRIZANJE / PROMETNICA: vrsta materijala -- Predmetna lokacija je javna prometna povrsina; kolnik je izveden od asfaltnog zastora, nogostupi od betonskih plocica. nagib terena -- Teren je ravan uz blagi tecajni nagib za odvodnju oborinskih voda. instalacije -- Na lokaciji prolaze podzemni komunalni vodovi (elektrika, telekomunikacije, vodovod), no nema nadzemnih gradjevinskih instalacija. opca namjena -- Lokacija je javna prometna povrsina namijenjena kolnom i pjesakom prometu. nacin zakljucavanja -- Javna prometna povrsina se ne zakljucava. tjelesna i tehnicka zastita -- Na lokaciji krizanja nema tjelesne ni tehnicke zastite osim prometne signalizacije.",
+        "- Za polja koja nisu primjenjiva za dani tip objekta napisi jednu jasnu konstatacijsku recenicu. Primjeri po tipu:\n  PARK: vrsta materijala = podloge staza i mobilijar (nema gradjevine); ostale instalacije = nema plinskih/vodovodnih; nacin zakljucavanja = javni prostor otvoren 24h; tjelesna zastita = ne provodi se.\n  KRIZANJE/PROMETNICA: vrsta materijala = asfaltni zastor kolnika, betonske plocice nogostupa; instalacije = podzemni komunalni vodovi bez nadzemne gradevine; nacin zakljucavanja = ne zakljucava se; tjelesna zastita = nema, samo prometna signalizacija.\n  BANKA ili POSLOVNI OBJEKT: sva polja su primjenjiva — pisi normalno o zgradi, instalacijama, zastitarima, sustavima videonadzora, sefu, ranom vremenu, nacinu zakljucavanja itd.\n  STAMBENA ZGRADA: radni procesi = nema specificnih radnih procesa; tjelesna zastita = ne provodi se sustavna tjelesna zastita.\n  SKOLA/BOLNICA/USTANOVA: sve tablice primjenjive, naglasi specificnosti ustanove (djeca, pacijenti, radno vrijeme).\n  Opce pravilo: ako objekt ima gradevinu — pisi o njoj. Ako nema (park, krizanje) — jednom recenicom navedi da ne postoji.",
         "",
         "Tablica: " + table["number"] + " - " + table["title"],
         "",
