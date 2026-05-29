@@ -1,4 +1,4 @@
-aaimport streamlit as st
+import streamlit as st
 import requests
 from geopy.geocoders import Nominatim
 from datetime import datetime
@@ -6,15 +6,16 @@ from datetime import datetime
 st.set_page_config(page_title="Generator Opisa Lokacije", layout="wide")
 st.title("🗺️ Generator Opisa Lokacije za Sigurnosnu Analizu")
 
-# SIDEBAR
+# ====================== SIDEBAR ======================
 with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
-    st.info("Zalijepi svoj Claude ključ ovdje")
+    st.info("Zalijepi svoj Claude API ključ ovdje")
 
-# GEOLOCATION
+# ====================== GEOLOCATION ======================
 geolocator = Nominatim(user_agent="lokacija_generator_hr")
 
+# ====================== GLAVNI DIO ======================
 col1, col2 = st.columns([1, 1])
 
 with col1:
@@ -44,25 +45,25 @@ with col2:
                         "content-type": "application/json"
                     }
                     
-                    prompt = f"""Napiši detaljan formalan opis lokacije na hrvatskom jeziku u stilu sigurnosne analize.
+                    prompt = f"""Napiši detaljan, formalan opis lokacije na hrvatskom jeziku u stilu službenog sigurnosnog elaborata.
 
 Lokacija: {st.session_state.location.address}
 Koordinate: {st.session_state.location.latitude}, {st.session_state.location.longitude}
 
-Napiši ove sekcije:
+Napiši sljedeće sekcije:
 1. Opis lokacije
 2. Opis okolnih građevina, površina i okoliša
 3. Načini pristupa
-4. Frekvencija prometa radnim danom, vikendom i noću
+4. Frekvencija prometa (radni dani, vikend, noć)
 5. Stanje kriminaliteta u okolnom prostoru
 
-Koristi formalni, stručni stil kao u primjeru za stadion u Kranjčevićevoj ulici."""
+Koristi formalni, birokratski stil kao u primjeru za stadion u Kranjčevićevoj ulici."""
 
                     response = requests.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=headers,
                         json={
-                            "model": "claude-sonnet-4-6",          # ← NOVI MODEL
+                            "model": "claude-3-5-sonnet-20241022",
                             "max_tokens": 4000,
                             "temperature": 0.7,
                             "messages": [{"role": "user", "content": prompt}]
@@ -76,18 +77,18 @@ Koristi formalni, stručni stil kao u primjeru za stadion u Kranjčevićevoj uli
                         st.text_area("Generirani tekst:", opis, height=650)
                         
                         st.download_button(
-                            label="💾 Preuzmi kao .txt",
+                            label="💾 Preuzmi kao .txt datoteku",
                             data=opis,
                             file_name=f"Opis_lokacije_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                             mime="text/plain"
                         )
                     else:
                         st.error(f"Claude greška: {response.status_code}")
-                        st.write(response.text)
+                        st.write(response.text[:400])
                         
                 except Exception as e:
                     st.error(f"Greška: {str(e)}")
     else:
         st.info("Unesi API ključ i pronađi lokaciju.")
 
-st.caption("Koristi Claude Sonnet 4.6 • Encoding popravljen")
+st.caption("Verzija 1.3 • Ispravljen syntax error")
