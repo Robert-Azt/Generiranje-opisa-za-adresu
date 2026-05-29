@@ -69,20 +69,29 @@ def geocode(query):
 
 
 def reverse_geocode(lat, lon):
-    """Reverse geocodiranje koordinata — vraca display_name."""
+    """Reverse geocodiranje — vraca (display_name, road, suburb, city)."""
     headers = {"User-Agent": "lokacija_generator_hr_v3"}
     try:
         r = requests.get(
             "https://nominatim.openstreetmap.org/reverse",
-            params={"lat": lat, "lon": lon, "format": "json"},
+            params={"lat": lat, "lon": lon, "format": "json",
+                    "zoom": 18, "addressdetails": 1},
             headers=headers, timeout=10
         )
         if r.ok:
             data = r.json()
-            return data.get("display_name", f"{lat:.6f}, {lon:.6f}")
+            addr = data.get("address", {})
+            road    = addr.get("road", "")
+            suburb  = addr.get("suburb", addr.get("quarter", ""))
+            city    = addr.get("city", addr.get("town", ""))
+            display = data.get("display_name", "")
+            # Sastavi kratki opis: "Ul. Savezne Republike Njemačke / Vatikanska, Maksimir, Zagreb"
+            parts = [p for p in [road, suburb, city] if p]
+            short  = ", ".join(parts) if parts else display
+            return short or f"{lat:.6f}, {lon:.6f}", road, suburb, city
     except Exception:
         pass
-    return f"{lat:.6f}, {lon:.6f}"
+    return f"{lat:.6f}, {lon:.6f}", "", "", ""
 
 TABLES = [
     {
@@ -236,10 +245,11 @@ def fetch_osm_context(lat, lon, radius=350):
 
 
 
-def identify_location(api_key, location_address, lat, lon):
+def identify_location(api_key, location_address, lat, lon, coords_input=False):
     """
-    Korak 0: Claude s web_search-om identificira sto se nalazi na adresi
-    i kategorizira okolicu. Vraca strukturirani opis za sve ostale promptove.
+    Korak 0: Claude s web_search-om identificira sto se nalazi na lokaciji.
+    coords_input=True znaci da korisnik nije unio adresu nego samo koordinate
+    (krizanje, neobiljezenaa lokacija) — Claude treba sam iz karte shvatiti sto je tamo.
     """
     headers = {
         "x-api-key": api_key,
@@ -247,27 +257,45 @@ def identify_location(api_key, location_address, lat, lon):
         "content-type": "application/json"
     }
 
-    prompt = f"""Istrazi lokaciju i odgovori SAMO JSON objektom bez komentara i markdown oznaka.
+    if coords_input:
+        # Koordinate bez adrese — Claude mora sam identificirati lokaciju
+        lokacija_opis = (
+            f"KOORDINATE: {lat:.6f}, {lon:.6f}\n"
+            f"Nominatim reverse geocode: {location_address}\n\n"
+            "VAZNO: Korisnik je unio iskljucivo koordinate (nema naziva objekta ni adrese). "
+            "To znaci da se radi o krizanju, neoznacenoj lokaciji ili teski za adresiranje mjestu. "
+            "Pretrazi web koristeci koordinate i saznaj tocno sto se nalazi na toj lokaciji "
+            "(npr. pretrazi OpenStreetMap, Google Maps ili slicne izvore za te koordinate). "
+            "Ako je krizanje — navedi koje se ulice krizaju. "
+            "Ako je park, zelenilo, prometnica — opisi to tocno."
+        )
+    else:
+        lokacija_opis = (
+            f"ADRESA: {location_address}\n"
+            f"Koordinate: {lat:.6f}, {lon:.6f}"
+        )
 
-Adresa: {location_address}
-Koordinate: {lat:.6f}, {lon:.6f}
-
-Pretrazi web i saznaj:
-1. Sto se tocno nalazi na ovoj adresi (zgrada, objekt, institucija, stadion, park, skola, poslovni objekt...)?
-2. Koje ulice okruzuju lokaciju (navedi tocna imena)?
-3. Koje kategorije sadrzaja postoje u okolici? Koristi generike nazive, bez konkretnih imena:
-   npr. ugostiteljski objekti, stambene zgrade, poslovni objekti, trgovacki centri, javne ustanove, zelene povrsine.
-4. Kako je lokacija prometno povezana (tramvaj, bus, koje linije/stanice)?
-
-Odgovori ISKLJUCIVO ovim JSON objektom:
-{{
-  "objekt_na_adresi": "konkretan naziv i tip objekta koji se nalazi na adresi",
-  "tip_objekta": "jedna kategorija: stambena zgrada / poslovni objekt / sportski objekt / javna ustanova / skola / bolnica / park / industrijsko postrojenje / misovito",
-  "okolne_ulice": "stvarna imena ulica odvojena zarezom",
-  "kategorije_okolice": "genericki opis sadrzaja u okolici bez konkretnih naziva objekata",
-  "javni_prijevoz": "opis javnog prijevoza s linijama i stanicama",
-  "dodatni_kontekst": "ostalo relevantno za sigurnosni elaborat"
-}}"""
+    prompt = "\n".join([
+        "Istrazi lokaciju i odgovori SAMO JSON objektom bez komentara i markdown oznaka.",
+        "",
+        lokacija_opis,
+        "",
+        "Pretrazi web i saznaj:",
+        "1. Sto se TOCNO nalazi na ovoj lokaciji? (naziv objekta, tip, krizanje ulica...)",
+        "2. Koje ulice okruzuju lokaciju — navedi tocna imena",
+        "3. Kategorije sadrzaja u okolici (genericki: stambene zgrade, poslovni objekti, parkovi... — bez konkretnih imena kaficaa)",
+        "4. Javni prijevoz — tramvaj/bus linije i stanice u blizini",
+        "",
+        "Odgovori ISKLJUCIVO ovim JSON objektom:",
+        "{",
+        '  "objekt_na_adresi": "konkretan naziv i tip objekta, ili opis krizanja ulica ako nema objekta",',
+        '  "tip_objekta": "jedna kategorija: stambena zgrada / poslovni objekt / sportski objekt / javna ustanova / skola / bolnica / park / prometnica-krizanje / industrijsko postrojenje / misovito",',
+        '  "okolne_ulice": "stvarna imena ulica odvojena zarezom",',
+        '  "kategorije_okolice": "genericki opis sadrzaja u okolici bez konkretnih naziva objekata",',
+        '  "javni_prijevoz": "opis javnog prijevoza s linijama i stanicama",',
+        '  "dodatni_kontekst": "ostalo relevantno za sigurnosni elaborat"',
+        "}",
+    ])
 
     try:
         response = requests.post(
@@ -275,7 +303,7 @@ Odgovori ISKLJUCIVO ovim JSON objektom:
             headers=headers,
             json={
                 "model": "claude-sonnet-4-6",
-                "max_tokens": 1000,
+                "max_tokens": 1200,
                 "messages": [{"role": "user", "content": prompt}],
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}]
             },
@@ -285,13 +313,9 @@ Odgovori ISKLJUCIVO ovim JSON objektom:
         if response.status_code != 200:
             return None
 
-        content = response.json().get("content", [])
-        raw = ""
-        for block in content:
-            if block.get("type") == "text":
-                raw += block.get("text", "")
+        blocks = response.json().get("content", [])
+        raw = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
 
-        raw = raw.strip()
         if "```" in raw:
             for part in raw.split("```"):
                 part = part.strip().lstrip("json").strip()
@@ -303,6 +327,7 @@ Odgovori ISKLJUCIVO ovim JSON objektom:
 
     except Exception:
         return None
+
 
 def build_context_string(osm):
     """Složi čitljiv kontekst za Claude prompt."""
@@ -473,13 +498,18 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
         # Provjeri jesu li unesene koordinate
         coords = parse_coords(address)
+        coords_input = coords is not None  # je li korisnik unio koordinate
         if coords:
             lat, lon = coords
-            display_name = reverse_geocode(lat, lon)
+            short, road, suburb, city = reverse_geocode(lat, lon)
+            # Za display: kratki naziv + koordinate
+            display_name = f"{short} ({lat:.6f}, {lon:.6f})" if short != f"{lat:.6f}, {lon:.6f}" else f"{lat:.6f}, {lon:.6f}"
         else:
+            coords_input = False
             result = geocode(address)
             if result:
                 lat, lon, display_name = result
+                road, suburb, city = "", "", ""
             else:
                 st.error("Adresa nije pronađena. Pokušaj s koordinatama (npr. 45.8095, 15.9578).")
                 st.stop()
@@ -489,7 +519,7 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     # Korak 1: identifikacija objekta web searchom
     location_info = None
     with st.spinner("🔍 Identifikacija objekta na adresi (web search)..."):
-        location_info = identify_location(api_key, display_name, lat, lon)
+        location_info = identify_location(api_key, display_name, lat, lon, coords_input=coords_input)
 
     if location_info:
         with st.expander("🏢 Identificirani objekt i okolica", expanded=True):
