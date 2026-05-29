@@ -310,8 +310,8 @@ def identify_location(api_key, location_address, lat, lon, coords_input=False):
             "https://api.anthropic.com/v1/messages",
             headers=headers,
             json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 800,
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1200,
                 "messages": [{"role": "user", "content": prompt}],
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}]
             },
@@ -397,7 +397,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
         "",
         "UPUTE:",
         "- Elaborat se odnosi na objekt naveden gore - pisi specificno za taj tip objekta",
-        "- Navodi prava imena okolnih ulica gdje je relevantno",
+        "- Za nazive ulica koristi ISKLJUCIVO ulice navedene u sekciji OKOLNE ULICE gore. Ako ulica nije eksplicitno navedena u tim podacima — NE NAVODI JE i ne izmisljaj nazive. Bolje je napisati npr. ulicama u neposrednoj okolici nego izmisliti krivi naziv.",
         "- Za sadrzaje u okolici koristi opce kategorije, ne konkretna imena ugostiteljskih i slicnih objekata",
         "- 3-5 recenica po polju, cist tekst bez formatiranja",
         "- KRITИЧНО: vrijednosti u JSON-u NE smiju sadrzavati navodnike. Umjesto navodnika koristi zareze ili zagrade.",
@@ -422,7 +422,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
             "https://api.anthropic.com/v1/messages",
             headers=headers,
             json={
-                "model": "claude-haiku-4-5-20251001",
+                "model": "claude-sonnet-4-6",
                 "max_tokens": 1500,
                 "temperature": 0.4,
                 "messages": [{"role": "user", "content": prompt}]
