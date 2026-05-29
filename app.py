@@ -263,45 +263,113 @@ def build_context_string(osm):
 
 def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, retries=4):
     """Jedan API poziv po tablici, s retry na 429."""
-    keys_list = "\n".join(f'  "{key}": "..."' for (_, key) in table["rows"])
-    row_descriptions = "\n".join(
-        f'- "{key}": 3-5 recenica o "{label}"' 
+    import re as _re
+
+    # Grad JSON predložak za odgovor
+    json_keys = ",\n".join(f'  "{key}": "..."' for (_, key) in table["rows"])
+    json_template = "{\n" + json_keys + "\n}"
+
+    row_lines = "\n".join(
+        f'- {key}: 3-5 recenica o temi "{label}"'
         for (label, key) in table["rows"]
     )
 
-    objekt_block = ""
+    # Kontekst o objektu
+    ctx_lines = []
     if location_info:
-        objekt_block = (
-            "\nOBJEKT NA ADRESI (elaborat se pise za ovaj objekt):\n"
-            f"- Naziv i tip: {location_info.get('objekt_na_adresi', '')}\n"
-            f"- Kategorija: {location_info.get('tip_objekta', '')}\n"
-            f"- Dodatni kontekst: {location_info.get('dodatni_kontekst', '')}\n"
-            "\nPODACI O OKOLICI (ne navodi konkretna imena kaficau/restorana, koristi kategorije):\n"
-            f"- Okolne ulice: {location_info.get('okolne_ulice', '')}\n"
-            f"- Sadrzaji: {location_info.get('kategorije_okolice', '')}\n"
-            f"- Javni prijevoz: {location_info.get('javni_prijevoz', '')}\n"
-        )
+        ctx_lines.append("OBJEKT NA ADRESI: " + location_info.get("objekt_na_adresi", ""))
+        ctx_lines.append("TIP OBJEKTA: " + location_info.get("tip_objekta", ""))
+        ctx_lines.append("OKOLNE ULICE: " + location_info.get("okolne_ulice", ""))
+        ctx_lines.append("SADRZAJI U OKOLICI (koristiti kategorije, ne konkretna imena): " + location_info.get("kategorije_okolice", ""))
+        ctx_lines.append("JAVNI PRIJEVOZ: " + location_info.get("javni_prijevoz", ""))
+        ctx_lines.append("DODATNO: " + location_info.get("dodatni_kontekst", ""))
     elif context_str:
-        objekt_block = f"\nPodaci o lokaciji:\n{context_str}\n"
+        ctx_lines.append(context_str)
+    ctx_block = "\n".join(ctx_lines)
 
-    prompt = (
-        "Ti si strucnjak za izradu sigurnosnih elaborata u Hrvatskoj. Pisi formalno i birokratski.\n\n"
-        f"Lokacija: {location_address}\n"
-        f"Koordinate: {lat:.6f}, {lon:.6f}\n"
-        f"{objekt_block}\n"
-        "UPUTE:\n"
-        "- Pisi specificno za tip objekta naveden gore\n"
-        "- Navodi prava imena ulica gdje je relevantno\n"
-        "- Za sadrzaje u okolici koristi kategorije (ugostiteljski objekti, stambene zgrade...) ne konkretna imena\n"
-        "- 3-5 recenica po polju, cist tekst bez formatiranja\n"
-        "- Bez navodnika u tekstu (pokvarilo bi JSON)\n\n"
-        f"Tablica: {table['number']} - {table['title']}\n"
-        f"{row_descriptions}\n\n"
-        "Odgovori SAMO ovim JSON objektom:\n"
-        "{\n"
-        f"{keys_list}\n"
-        "}"
-    )
+    prompt = "\n".join([
+        "Ti si strucnjak za izradu sigurnosnih elaborata u Hrvatskoj. Pisi formalno i birokratski.",
+        "",
+        "Lokacija: " + location_address,
+        "Koordinate: " + f"{lat:.6f}, {lon:.6f}",
+        "",
+        ctx_block,
+        "",
+        "UPUTE:",
+        "- Elaborat se odnosi na objekt naveden gore - pisi specificno za taj tip objekta",
+        "- Navodi prava imena okolnih ulica gdje je relevantno",
+        "- Za sadrzaje u okolici koristi opce kategorije, ne konkretna imena ugostiteljskih i slicnih objekata",
+        "- 3-5 recenica po polju, cist tekst bez formatiranja",
+        "- KRITИЧНО: vrijednosti u JSON-u NE smiju sadrzavati navodnike. Umjesto navodnika koristi zareze ili zagrade.",
+        "",
+        "Tablica: " + table["number"] + " - " + table["title"],
+        "",
+        row_lines,
+        "",
+        "Odgovori ISKLJUCIVO sljedecim JSON objektom, bez ikakvih dodatnih rijeci prije ili poslije:",
+        json_template,
+    ])
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+
+    for attempt in range(retries):
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 1500,
+                "temperature": 0.4,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=45
+        )
+
+        if response.status_code == 429:
+            time.sleep(5 * (attempt + 1))
+            continue
+
+        if response.status_code != 200:
+            raise Exception(f"Tablica {table['number']} - greska {response.status_code}: {response.text}")
+
+        raw = response.json()["content"][0]["text"].strip()
+
+        # Ukloni markdown backticks
+        if "```" in raw:
+            for part in raw.split("```"):
+                part = part.strip().lstrip("json").strip()
+                if part.startswith("{"):
+                    raw = part
+                    break
+
+        # Pokusaj 1: direktni json.loads
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        # Pokusaj 2: regex po kljucu
+        result = {}
+        for (_, key) in table["rows"]:
+            pattern = rf'"{_re.escape(key)}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+            m = _re.search(pattern, raw, _re.DOTALL)
+            if m:
+                value = m.group(1).replace('\\"', '"').replace('\\n', ' ').replace('\\t', ' ')
+                result[key] = value.strip()
+            else:
+                result[key] = ""
+
+        if any(result.values()):
+            return result
+
+        raise Exception(f"Tablica {table['number']} - ne mogu parsirati:\n{raw[:300]}")
+
+    raise Exception(f"Tablica {table['number']} - previse pokusaja (rate limit)")
+
 
 def add_section_table(doc, table, data):
     heading = doc.add_heading(table["section"], level=3)
