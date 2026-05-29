@@ -351,6 +351,8 @@ def build_context_string(osm):
     return "\n".join(parts) if parts else ""
 
 
+
+
 def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, retries=4):
     """Jedan API poziv po tablici, s retry na 429."""
     import re as _re
@@ -391,6 +393,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
         "- Za sadrzaje u okolici koristi opce kategorije, ne konkretna imena ugostiteljskih i slicnih objekata",
         "- 3-5 recenica po polju, cist tekst bez formatiranja",
         "- KRITИЧНО: vrijednosti u JSON-u NE smiju sadrzavati navodnike. Umjesto navodnika koristi zareze ili zagrade.",
+        "- Ako je tip objekta park, krizanje, cesta, zelena povrsina ili druga lokacija BEZ GRADEVINE: za svako polje koje se ne moze primijeniti napisi jednu jasnu recenicu koja to konstatira. Primjeri za PARK: vrsta materijala -- U parku nema gradjevinskog objekta pa se vrsta materijala odnosi na podloge staza i parkovnog mobilijara. ostale instalacije -- U parku nema plinskih, vodovodnih ni kanalizacijskih instalacija. nacin zakljucavanja -- Park je javni prostor koji se fizicki ne zakljucava i otvoren je 24 sata dnevno. tjelesna zastita -- U parku se ne provodi tjelesna zastita. Primjeri za KRIZANJE / PROMETNICA: vrsta materijala -- Predmetna lokacija je javna prometna povrsina; kolnik je izveden od asfaltnog zastora, nogostupi od betonskih plocica. nagib terena -- Teren je ravan uz blagi tecajni nagib za odvodnju oborinskih voda. instalacije -- Na lokaciji prolaze podzemni komunalni vodovi (elektrika, telekomunikacije, vodovod), no nema nadzemnih gradjevinskih instalacija. opca namjena -- Lokacija je javna prometna povrsina namijenjena kolnom i pjesakom prometu. nacin zakljucavanja -- Javna prometna povrsina se ne zakljucava. tjelesna i tehnicka zastita -- Na lokaciji krizanja nema tjelesne ni tehnicke zastite osim prometne signalizacije.",
         "",
         "Tablica: " + table["number"] + " - " + table["title"],
         "",
@@ -481,7 +484,8 @@ def add_section_table(doc, table, data):
         rl = para.add_run(f"{label}: ")
         rl.bold = True
         rl.font.size = Pt(10)
-        rt = para.add_run(data.get(key, ""))
+        val = data.get(key, "")
+        rt = para.add_run(val)
         rt.bold = False
         rt.font.size = Pt(10)
 
@@ -575,8 +579,9 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     for table in TABLES:
         with st.expander(f"Tablica {table['number']} — {table['title']}", expanded=False):
             for label, key in table["rows"]:
+                val = results.get(key, "")
                 st.markdown(f"**{label}:**")
-                st.write(results.get(key, ""))
+                st.write(val)
 
     doc = Document()
     h = doc.add_heading("Snimka postojećeg stanja", level=1)
