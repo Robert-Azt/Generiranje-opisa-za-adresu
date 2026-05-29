@@ -127,16 +127,17 @@ TABLES = [
     },
 ]
 
-# Podjela tablica u 3 grupe za paralelne API pozive
+# 5 malih grupa — max 5 sekcija po pozivu
 GROUPS = [
-    TABLES[0:4],   # 2.1 – 2.4  (12 ključeva)
-    TABLES[4:7],   # 2.5 – 2.7  (9 ključeva)
-    TABLES[7:11],  # 2.8 – 2.11 (8 ključeva)
+    TABLES[0:2],   # 2.1–2.2  (7 ključeva)
+    TABLES[2:4],   # 2.3–2.4  (5 ključeva)
+    TABLES[4:6],   # 2.5–2.6  (6 ključeva)
+    TABLES[6:9],   # 2.7–2.9  (8 ključeva)
+    TABLES[9:11],  # 2.10–2.11 (3 ključa)
 ]
 
 
 def call_claude(api_key, location_address, lat, lon, group):
-    """Jedan API poziv za grupu tablica."""
     keys_list = "\n".join(
         f'  "{key}": "..."'
         for table in group
@@ -148,19 +149,18 @@ def call_claude(api_key, location_address, lat, lon, group):
     )
 
     prompt = f"""Ti si stručnjak za izradu sigurnosnih elaborata i procjena ugroženosti u Hrvatskoj.
-Piši formalno, birokratski i detaljno, kao u službenom elaboratu o procjeni sigurnosnih rizika nekretnine.
+Piši formalno, birokratski i detaljno, kao u službenom elaboratu.
 
 Lokacija: {location_address}
 Koordinate: {lat:.6f}, {lon:.6f}
 
-Generiraj tekst za sljedeće sekcije elaborata:
+Generiraj tekst za sljedeće sekcije:
 {context}
 
-Za svaki ključ napiši 4-8 povezanih, smislenih rečenica prilagođenih ovoj specifičnoj lokaciji.
-Tekst mora biti u obliku tekućeg odlomka — bez markdowna, bez bullet pointova, bez boldanja, bez tablica.
-Piši isključivo čist tekst.
+Za svaki ključ napiši 4-6 povezanih rečenica prilagođenih ovoj lokaciji.
+Samo čist tekst — bez markdowna, bullet pointova, boldanja ili tablica.
 
-Odgovori SAMO s JSON objektom, bez komentara, bez markdown oznaka:
+Odgovori SAMO s JSON objektom, bez ikakvih dodatnih znakova:
 {{
 {keys_list}
 }}"""
@@ -176,11 +176,11 @@ Odgovori SAMO s JSON objektom, bez komentara, bez markdown oznaka:
         headers=headers,
         json={
             "model": "claude-sonnet-4-6",
-            "max_tokens": 4000,
+            "max_tokens": 2500,
             "temperature": 0.6,
             "messages": [{"role": "user", "content": prompt}]
         },
-        timeout=90
+        timeout=60
     )
 
     if response.status_code != 200:
@@ -188,7 +188,6 @@ Odgovori SAMO s JSON objektom, bez komentara, bez markdown oznaka:
 
     raw = response.json()["content"][0]["text"].strip()
 
-    # Ukloni eventualne markdown backtick ograde
     if "```" in raw:
         for part in raw.split("```"):
             part = part.strip().lstrip("json").strip()
@@ -207,14 +206,12 @@ def add_section_table(doc, table, data):
     tbl = doc.add_table(rows=1 + len(table["rows"]), cols=1)
     tbl.style = "Table Grid"
 
-    # Zaglavlje
     header_para = tbl.cell(0, 0).paragraphs[0]
     header_para.clear()
     r = header_para.add_run(f"Tablica {table['number']}. {table['title']}")
     r.bold = True
     r.font.size = Pt(10)
 
-    # Redci
     for i, (label, key) in enumerate(table["rows"]):
         para = tbl.cell(i + 1, 0).paragraphs[0]
         para.clear()
@@ -241,11 +238,12 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     st.success(f"📍 {location.address}")
 
-    progress = st.progress(0, text="Pokretanje 3 paralelna API poziva...")
+    progress = st.progress(0, text="Pokretanje 5 paralelnih API poziva...")
 
-    with st.spinner("Claude generira tekst (3 paralelna poziva)..."):
+    with st.spinner("Claude generira tekst..."):
         results = {}
         errors = []
+        done_count = 0
 
         def fetch(group_idx):
             return group_idx, call_claude(
@@ -254,17 +252,18 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
                 GROUPS[group_idx]
             )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {executor.submit(fetch, i): i for i in range(3)}
-            done_count = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(fetch, i): i for i in range(5)}
             for future in concurrent.futures.as_completed(futures):
                 try:
                     idx, data = future.result()
                     results.update(data)
                     done_count += 1
-                    progress.progress(done_count / 3, text=f"Završeno {done_count}/3 poziva...")
+                    progress.progress(done_count / 5, text=f"Završeno {done_count}/5 poziva...")
                 except Exception as e:
                     errors.append(str(e))
+                    done_count += 1
+                    progress.progress(done_count / 5, text=f"Završeno {done_count}/5 poziva...")
 
     if errors:
         st.error("Greške:\n" + "\n".join(errors))
@@ -272,7 +271,6 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     progress.progress(1.0, text="Generiranje završeno!")
 
-    # Prikaz u Streamlitu
     st.subheader("📄 Generirani sadržaj")
     for table in TABLES:
         with st.expander(f"Tablica {table['number']} — {table['title']}", expanded=False):
@@ -280,10 +278,9 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
                 st.markdown(f"**{label}:**")
                 st.write(results.get(key, ""))
 
-    # Word dokument
     doc = Document()
-    heading = doc.add_heading("Snimka postojećeg stanja", level=1)
-    for run in heading.runs:
+    h = doc.add_heading("Snimka postojećeg stanja", level=1)
+    for run in h.runs:
         run.font.size = Pt(14)
 
     for table in TABLES:
