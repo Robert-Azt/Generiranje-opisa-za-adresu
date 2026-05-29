@@ -127,40 +127,29 @@ TABLES = [
     },
 ]
 
-# 5 malih grupa — max 5 sekcija po pozivu
-GROUPS = [
-    TABLES[0:2],   # 2.1–2.2  (7 ključeva)
-    TABLES[2:4],   # 2.3–2.4  (5 ključeva)
-    TABLES[4:6],   # 2.5–2.6  (6 ključeva)
-    TABLES[6:9],   # 2.7–2.9  (8 ključeva)
-    TABLES[9:11],  # 2.10–2.11 (3 ključa)
-]
 
-
-def call_claude(api_key, location_address, lat, lon, group):
+def call_claude_one_table(api_key, location_address, lat, lon, table):
+    """Jedan API poziv = jedna tablica."""
     keys_list = "\n".join(
         f'  "{key}": "..."'
-        for table in group
         for (_, key) in table["rows"]
     )
-    context = "\n".join(
-        f"- {table['title']}: {', '.join(label for label, _ in table['rows'])}"
-        for table in group
+    row_descriptions = "\n".join(
+        f'- "{key}": napiši 3-5 rečenica o "{label}"'
+        for (label, key) in table["rows"]
     )
 
-    prompt = f"""Ti si stručnjak za izradu sigurnosnih elaborata i procjena ugroženosti u Hrvatskoj.
-Piši formalno, birokratski i detaljno, kao u službenom elaboratu.
+    prompt = f"""Ti si stručnjak za izradu sigurnosnih elaborata u Hrvatskoj. Piši formalno i birokratski.
 
 Lokacija: {location_address}
 Koordinate: {lat:.6f}, {lon:.6f}
+Tablica: {table['number']} — {table['title']}
 
-Generiraj tekst za sljedeće sekcije:
-{context}
+{row_descriptions}
 
-Za svaki ključ napiši 4-6 povezanih rečenica prilagođenih ovoj lokaciji.
-Samo čist tekst — bez markdowna, bullet pointova, boldanja ili tablica.
+Svaki tekst: 3-5 povezanih rečenica, čist tekst bez formatiranja.
 
-Odgovori SAMO s JSON objektom, bez ikakvih dodatnih znakova:
+Odgovori SAMO ovim JSON objektom:
 {{
 {keys_list}
 }}"""
@@ -175,19 +164,20 @@ Odgovori SAMO s JSON objektom, bez ikakvih dodatnih znakova:
         "https://api.anthropic.com/v1/messages",
         headers=headers,
         json={
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 2500,
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1500,
             "temperature": 0.6,
             "messages": [{"role": "user", "content": prompt}]
         },
-        timeout=60
+        timeout=45
     )
 
     if response.status_code != 200:
-        raise Exception(f"API greška ({response.status_code}): {response.text}")
+        raise Exception(f"Tablica {table['number']} — API greška {response.status_code}: {response.text}")
 
     raw = response.json()["content"][0]["text"].strip()
 
+    # Ukloni eventualne markdown backtick ograde
     if "```" in raw:
         for part in raw.split("```"):
             part = part.strip().lstrip("json").strip()
@@ -238,32 +228,31 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     st.success(f"📍 {location.address}")
 
-    progress = st.progress(0, text="Pokretanje 5 paralelnih API poziva...")
+    total = len(TABLES)
+    progress = st.progress(0, text=f"Pokretanje {total} paralelnih poziva...")
 
-    with st.spinner("Claude generira tekst..."):
-        results = {}
-        errors = []
-        done_count = 0
+    results = {}
+    errors = []
+    done_count = 0
 
-        def fetch(group_idx):
-            return group_idx, call_claude(
-                api_key, location.address,
-                location.latitude, location.longitude,
-                GROUPS[group_idx]
-            )
+    def fetch(table):
+        return table["number"], call_claude_one_table(
+            api_key, location.address,
+            location.latitude, location.longitude,
+            table
+        )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(fetch, i): i for i in range(5)}
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    idx, data = future.result()
-                    results.update(data)
-                    done_count += 1
-                    progress.progress(done_count / 5, text=f"Završeno {done_count}/5 poziva...")
-                except Exception as e:
-                    errors.append(str(e))
-                    done_count += 1
-                    progress.progress(done_count / 5, text=f"Završeno {done_count}/5 poziva...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=11) as executor:
+        futures = {executor.submit(fetch, t): t for t in TABLES}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                num, data = future.result()
+                results.update(data)
+            except Exception as e:
+                errors.append(str(e))
+            finally:
+                done_count += 1
+                progress.progress(done_count / total, text=f"Završeno {done_count}/{total} tablica...")
 
     if errors:
         st.error("Greške:\n" + "\n".join(errors))
