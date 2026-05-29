@@ -4,17 +4,14 @@ from geopy.geocoders import Nominatim
 from datetime import datetime
 from docx import Document
 from docx.shared import Pt, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
 
 st.set_page_config(page_title="Generator Opisa Lokacije", layout="wide")
 st.title("🗺️ Generator Opisa Lokacije za Sigurnosnu Analizu")
 
-# SIDEBAR
 with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
-    st.info("Zalijepi Claude ključ ovdje")
 
 geolocator = Nominatim(user_agent="lokacija_generator_hr")
 
@@ -30,14 +27,13 @@ with col1:
             if location:
                 st.session_state.location = location
                 st.success(f"✅ Pronađeno: {location.address}")
-                st.caption(f"Koordinate: {location.latitude:.6f}, {location.longitude:.6f}")
 
 with col2:
-    st.subheader("Generirani opis (Claude)")
+    st.subheader("Generirani opis")
     
     if 'location' in st.session_state and api_key:
-        if st.button("🚀 Generiraj opis i Word dokument", type="primary", use_container_width=True):
-            with st.spinner("Claude radi..."):
+        if st.button("🚀 Generiraj dokument sa tablicama", type="primary", use_container_width=True):
+            with st.spinner("Claude radi... (25-45 sekundi)"):
                 try:
                     headers = {
                         "x-api-key": api_key,
@@ -45,59 +41,59 @@ with col2:
                         "content-type": "application/json"
                     }
                     
-                    prompt = f"""Napiši detaljan formalan opis lokacije na hrvatskom jeziku u stilu sigurnosnog elaborata.
+                    prompt = f"""Napiši **cijeli sigurnosni elaborat** točno u stilu i formatu dokumenta koji ti je dan kao primjer (o stadionu u Kranjčevićevoj ulici).
 
 Lokacija: {st.session_state.location.address}
 Koordinate: {st.session_state.location.latitude}, {st.session_state.location.longitude}
 
-Koristi strukturu i stil kao u primjeru za stadion u Kranjčevićevoj ulici."""
+Koristi istu strukturu:
+- Naslove "Tablica 1. Opis lokacije", "Tablica 2. Osnovne karakteristike" itd.
+- Ispod svakog naslova tablice piši sadržaj u obliku:
+  **Opis lokacije:** tekst...
+  **Opis okolnih građevina...:** tekst...
+  **Načini pristupa:** tekst...
+  itd.
+
+Piši vrlo formalno, birokratski, sa sličnim rečenicama kao u primjeru. Koristi • za nabrajanja gdje je prikladno."""
 
                     response = requests.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=headers,
                         json={
                             "model": "claude-sonnet-4-6",
-                            "max_tokens": 4000,
-                            "temperature": 0.7,
+                            "max_tokens": 5000,
+                            "temperature": 0.6,
                             "messages": [{"role": "user", "content": prompt}]
                         },
-                        timeout=80
+                        timeout=100
                     )
 
                     if response.status_code == 200:
                         opis = response.json()["content"][0]["text"]
-                        st.success("✅ Opis generiran!")
-                        st.text_area("Pregled teksta:", opis, height=400)
+                        st.text_area("Generirani tekst:", opis, height=500)
 
                         # ==================== WORD DOKUMENT ====================
                         doc = Document()
                         doc.add_heading('Snimka postojećeg stanja', 0)
-                        doc.add_heading('Opis lokacije', level=1)
-                        doc.add_paragraph(opis)
 
-                        # Formatiranje
-                        for paragraph in doc.paragraphs:
-                            if paragraph.text.strip():
-                                paragraph.style = 'Normal'
-                                paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                        # Dodaj generirani tekst
+                        doc.add_paragraph(opis)
 
                         filename = f"Opis_lokacije_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
                         
-                        # Spremanje preko BytesIO (riješava encoding probleme)
                         buffer = io.BytesIO()
                         doc.save(buffer)
                         buffer.seek(0)
 
                         st.download_button(
-                            label="💾 Preuzmi Word dokument (.docx)",
+                            label="💾 Preuzmi Word dokument sa tablicama",
                             data=buffer,
                             file_name=filename,
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
                     else:
                         st.error(f"Claude greška: {response.status_code}")
-                        
                 except Exception as e:
-                    st.error(f"Greška: {str(e)}")
+                    st.error(f"Greška: {e}")
     else:
         st.info("Unesi API ključ i pronađi lokaciju.")
