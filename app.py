@@ -151,7 +151,6 @@ Odgovori SAMO ovim JSON objektom:
 {{
 {keys_list}
 }}"""
-
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
