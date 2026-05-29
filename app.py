@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import time
-from geopy.geocoders import Nominatim
+import re
 from datetime import datetime
 from docx import Document
 from docx.shared import Pt
@@ -16,8 +16,73 @@ with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
 
-geolocator = Nominatim(user_agent="lokacija_generator_hr_v2")
-address = st.text_input("Unesite adresu", "Iločka ulica 34, Zagreb")
+address = st.text_input(
+    "Unesite adresu ili koordinate",
+    "Iločka ulica 34, Zagreb",
+    help="Primjeri: Savska cesta 18, Zagreb  |  45.8095, 15.9578  |  45°46\'04.4\"N 15°59\'27.7\"E"
+)
+
+
+def parse_coords(text):
+    # Parsiraj koordinate iz teksta (decimalni ili DMS format)
+    # Vraca (lat, lon) ili None
+    t = text.strip()
+
+    # Decimalni: 45.8095, 15.9578
+    m = re.match(r'^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$', t)
+    if m:
+        lat, lon = float(m.group(1)), float(m.group(2))
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            return lat, lon
+
+    # DMS: 45°46'04.4"N 15°59'27.7"E
+    pat = (r'(\d+)[° ]\s*(\d+)[\'\u2019 ]\s*([\d.]+)[",]?\s*([NSns])'
+           r'[\s,]+(\d+)[° ]\s*(\d+)[\'\u2019 ]\s*([\d.]+)[",]?\s*([EWew])')
+    m2 = re.search(pat, t)
+    if m2:
+        lat = int(m2.group(1)) + int(m2.group(2))/60 + float(m2.group(3))/3600
+        if m2.group(4).upper() == 'S': lat = -lat
+        lon = int(m2.group(5)) + int(m2.group(6))/60 + float(m2.group(7))/3600
+        if m2.group(8).upper() == 'W': lon = -lon
+        return lat, lon
+
+    return None
+
+def geocode(query):
+    """
+    Geocodiranje bez geopy — direktni HTTP na Nominatim.
+    Vraca (lat, lon, display_name) ili None.
+    """
+    headers = {"User-Agent": "lokacija_generator_hr_v3"}
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": query, "format": "json", "limit": 1, "addressdetails": 1},
+            headers=headers, timeout=10
+        )
+        if r.ok and r.json():
+            item = r.json()[0]
+            return float(item["lat"]), float(item["lon"]), item["display_name"]
+    except Exception:
+        pass
+    return None
+
+
+def reverse_geocode(lat, lon):
+    """Reverse geocodiranje koordinata — vraca display_name."""
+    headers = {"User-Agent": "lokacija_generator_hr_v3"}
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "json"},
+            headers=headers, timeout=10
+        )
+        if r.ok:
+            data = r.json()
+            return data.get("display_name", f"{lat:.6f}, {lon:.6f}")
+    except Exception:
+        pass
+    return f"{lat:.6f}, {lon:.6f}"
 
 TABLES = [
     {
@@ -404,18 +469,27 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
         st.stop()
 
     with st.spinner("📍 Geocodiranje adrese..."):
-        location = geolocator.geocode(address)
-        if not location:
-            st.error("Adresa nije pronađena.")
-            st.stop()
-        lat, lon = location.latitude, location.longitude
+        display_name = None
 
-    st.success(f"📍 {location.address}")
+        # Provjeri jesu li unesene koordinate
+        coords = parse_coords(address)
+        if coords:
+            lat, lon = coords
+            display_name = reverse_geocode(lat, lon)
+        else:
+            result = geocode(address)
+            if result:
+                lat, lon, display_name = result
+            else:
+                st.error("Adresa nije pronađena. Pokušaj s koordinatama (npr. 45.8095, 15.9578).")
+                st.stop()
+
+    st.success(f"📍 {display_name}")
 
     # Korak 1: identifikacija objekta web searchom
     location_info = None
     with st.spinner("🔍 Identifikacija objekta na adresi (web search)..."):
-        location_info = identify_location(api_key, location.address, lat, lon)
+        location_info = identify_location(api_key, display_name, lat, lon)
 
     if location_info:
         with st.expander("🏢 Identificirani objekt i okolica", expanded=True):
@@ -445,7 +519,7 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     def fetch(table):
         return table["number"], call_claude_one_table(
-            api_key, location.address, lat, lon, context_str, table,
+            api_key, display_name, lat, lon, context_str, table,
             location_info=location_info
         )
 
