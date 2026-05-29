@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 from geopy.geocoders import Nominatim
 from datetime import datetime
 from docx import Document
@@ -128,14 +129,11 @@ TABLES = [
 ]
 
 
-def call_claude_one_table(api_key, location_address, lat, lon, table):
-    """Jedan API poziv = jedna tablica."""
-    keys_list = "\n".join(
-        f'  "{key}": "..."'
-        for (_, key) in table["rows"]
-    )
+def call_claude_one_table(api_key, location_address, lat, lon, table, retries=4):
+    """Jedan API poziv po tablici, s automatskim retry na 429."""
+    keys_list = "\n".join(f'  "{key}": "..."' for (_, key) in table["rows"])
     row_descriptions = "\n".join(
-        f'- "{key}": napiši 3-5 rečenica o "{label}"'
+        f'- "{key}": 3-5 rečenica o "{label}"'
         for (label, key) in table["rows"]
     )
 
@@ -160,32 +158,39 @@ Odgovori SAMO ovim JSON objektom:
         "content-type": "application/json"
     }
 
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers=headers,
-        json={
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1500,
-            "temperature": 0.6,
-            "messages": [{"role": "user", "content": prompt}]
-        },
-        timeout=45
-    )
+    for attempt in range(retries):
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 1500,
+                "temperature": 0.6,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=45
+        )
 
-    if response.status_code != 200:
-        raise Exception(f"Tablica {table['number']} — API greška {response.status_code}: {response.text}")
+        if response.status_code == 429:
+            wait = 5 * (attempt + 1)  # 5s, 10s, 15s, 20s
+            time.sleep(wait)
+            continue
 
-    raw = response.json()["content"][0]["text"].strip()
+        if response.status_code != 200:
+            raise Exception(f"Tablica {table['number']} — greška {response.status_code}: {response.text}")
 
-    # Ukloni eventualne markdown backtick ograde
-    if "```" in raw:
-        for part in raw.split("```"):
-            part = part.strip().lstrip("json").strip()
-            if part.startswith("{"):
-                raw = part
-                break
+        raw = response.json()["content"][0]["text"].strip()
 
-    return json.loads(raw)
+        if "```" in raw:
+            for part in raw.split("```"):
+                part = part.strip().lstrip("json").strip()
+                if part.startswith("{"):
+                    raw = part
+                    break
+
+        return json.loads(raw)
+
+    raise Exception(f"Tablica {table['number']} — previše pokušaja (rate limit)")
 
 
 def add_section_table(doc, table, data):
@@ -229,7 +234,7 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     st.success(f"📍 {location.address}")
 
     total = len(TABLES)
-    progress = st.progress(0, text=f"Pokretanje {total} paralelnih poziva...")
+    progress = st.progress(0, text="Generiranje elaborata...")
 
     results = {}
     errors = []
@@ -242,7 +247,8 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             table
         )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=11) as executor:
+    # max_workers=5 — ispod rate limit praga
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(fetch, t): t for t in TABLES}
         for future in concurrent.futures.as_completed(futures):
             try:
