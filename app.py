@@ -1,10 +1,7 @@
 import streamlit as st
 import requests
 from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from docx import Document
 from datetime import datetime
-import io
 
 st.set_page_config(page_title="Generator Opisa Lokacije", layout="wide")
 st.title("🗺️ Generator Opisa Lokacije za Sigurnosnu Analizu")
@@ -13,7 +10,7 @@ st.title("🗺️ Generator Opisa Lokacije za Sigurnosnu Analizu")
 with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
-    st.info("Zalijepi Claude ključ ovdje")
+    st.info("Zalijepi svoj Claude ključ ovdje")
 
 # GEOLOCATION
 geolocator = Nominatim(user_agent="lokacija_generator_hr")
@@ -26,19 +23,16 @@ with col1:
     
     if st.button("🔍 Pronađi lokaciju", type="primary", use_container_width=True):
         with st.spinner("Tražim lokaciju..."):
-            try:
-                location = geolocator.geocode(address)
-                if location:
-                    st.session_state.location = location
-                    st.success(f"✅ Pronađeno: {location.address}")
-                    st.caption(f"Koordinate: {location.latitude:.6f}, {location.longitude:.6f}")
-                else:
-                    st.error("Lokacija nije pronađena.")
-            except Exception as e:
-                st.error(f"Greška: {e}")
+            location = geolocator.geocode(address)
+            if location:
+                st.session_state.location = location
+                st.success(f"✅ Pronađeno: {location.address}")
+                st.caption(f"Koordinate: {location.latitude:.6f}, {location.longitude:.6f}")
+            else:
+                st.error("Lokacija nije pronađena.")
 
 with col2:
-    st.subheader("Generirani opis")
+    st.subheader("Generirani opis (Claude)")
     
     if 'location' in st.session_state and api_key:
         if st.button("🚀 Generiraj opis pomoću Claudea", type="primary", use_container_width=True):
@@ -50,66 +44,51 @@ with col2:
                         "content-type": "application/json"
                     }
                     
-                    prompt = f"""Napiši detaljan, formalan opis lokacije na hrvatskom jeziku za sigurnosnu analizu.
+                    prompt = f"""Napiši detaljan formalan opis lokacije na hrvatskom jeziku u stilu sigurnosne analize.
 
 Lokacija: {st.session_state.location.address}
 Koordinate: {st.session_state.location.latitude}, {st.session_state.location.longitude}
 
-Napiši sljedeće sekcije:
+Napiši ove sekcije:
 1. Opis lokacije
 2. Opis okolnih građevina, površina i okoliša
 3. Načini pristupa
-4. Frekvencija prometa (radni dani, vikend, noć)
+4. Frekvencija prometa radnim danom, vikendom i noću
 5. Stanje kriminaliteta u okolnom prostoru
 
-Koristi formalni stil kao u primjeru za stadion."""
+Koristi formalni, stručni stil."""
 
                     response = requests.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=headers,
                         json={
                             "model": "claude-3-5-sonnet-20240620",
-                            "max_tokens": 3500,
+                            "max_tokens": 4000,
                             "temperature": 0.7,
                             "messages": [{"role": "user", "content": prompt}]
                         },
-                        timeout=70
+                        timeout=80
                     )
 
                     if response.status_code == 200:
                         opis = response.json()["content"][0]["text"]
-                        st.success("✅ Opis generiran!")
-                        st.text_area("Generirani opis:", opis, height=550)
+                        st.success("✅ Opis uspješno generiran!")
+                        st.text_area("Generirani tekst:", opis, height=600)
                         
-                        # === POPRAVLJENO SPREMANJE WORD DOKUMENTA ===
-                        doc = Document()
-                        doc.add_heading('Snimka postojećeg stanja', 0)
-                        doc.add_heading('Opis lokacije', level=1)
-                        doc.add_paragraph(opis)
-                        
-                        filename = f"Opis_lokacije_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
-                        
-                        # Spremanje u memory buffer da izbjegnemo encoding probleme
-                        buffer = io.BytesIO()
-                        doc.save(buffer)
-                        buffer.seek(0)
-                        
+                        # Download kao TXT (privremeno, da izbjegnemo encoding problem)
                         st.download_button(
-                            label="💾 Preuzmi Word dokument",
-                            data=buffer,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            label="💾 Preuzmi kao .txt datoteku",
+                            data=opis,
+                            file_name=f"Opis_lokacije_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                            mime="text/plain"
                         )
                     else:
-                        st.error(f"API greška: {response.status_code}")
-                        st.write(response.text[:500])
+                        st.error(f"Claude greška: {response.status_code}")
+                        st.write(response.text[:300])
                         
                 except Exception as e:
                     st.error(f"Greška: {str(e)}")
     else:
-        if not api_key:
-            st.warning("⚠️ Unesi Anthropic API ključ u sidebar.")
-        else:
-            st.info("Prvo pronađi lokaciju.")
+        st.info("Unesi API ključ i pronađi lokaciju.")
 
-st.caption("Popravljena encoding verzija")
+st.caption("Verzija bez Worda (zbog encoding problema)")
