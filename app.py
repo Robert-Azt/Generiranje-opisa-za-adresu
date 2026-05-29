@@ -63,7 +63,7 @@ Koristi formalni, birokratski stil kao u primjeru za stadion u Kranjčevićevoj 
                         "https://api.anthropic.com/v1/messages",
                         headers=headers,
                         json={
-                            "model": "claude-3-5-sonnet-20241022",
+                            "model": "claude-sonnet-4-6",   # ← Ispravni model
                             "max_tokens": 4000,
                             "temperature": 0.7,
                             "messages": [{"role": "user", "content": prompt}]
@@ -84,11 +84,11 @@ Koristi formalni, birokratski stil kao u primjeru za stadion u Kranjčevićevoj 
                         )
                     else:
                         st.error(f"Claude greška: {response.status_code}")
-                        st.write(response.text[:400])
+                        st.write(response.text[:500])
                         
                 except Exception as e:
                     st.error(f"Greška: {str(e)}")
     else:
         st.info("Unesi API ključ i pronađi lokaciju.")
 
-st.caption("Verzija 1.3 • Ispravljen syntax error")
+st.caption("Verzija 1.4 • Ispravljen model claude-sonnet-4-6")
