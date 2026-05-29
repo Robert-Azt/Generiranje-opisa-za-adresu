@@ -4,6 +4,7 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from docx import Document
 from datetime import datetime
+import io
 
 st.set_page_config(page_title="Generator Opisa Lokacije", layout="wide")
 st.title("🗺️ Generator Opisa Lokacije za Sigurnosnu Analizu")
@@ -12,7 +13,7 @@ st.title("🗺️ Generator Opisa Lokacije za Sigurnosnu Analizu")
 with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
-    st.info("Zalijepi svoj Claude ključ ovdje")
+    st.info("Zalijepi Claude ključ ovdje")
 
 # GEOLOCATION
 geolocator = Nominatim(user_agent="lokacija_generator_hr")
@@ -23,7 +24,7 @@ with col1:
     st.subheader("Unos lokacije")
     address = st.text_input("Unesite adresu", "Iločka ulica 34, Zagreb")
     
-    if st.button("🔍 Pronađi lokaciju i generiraj opis", type="primary", use_container_width=True):
+    if st.button("🔍 Pronađi lokaciju", type="primary", use_container_width=True):
         with st.spinner("Tražim lokaciju..."):
             try:
                 location = geolocator.geocode(address)
@@ -34,7 +35,7 @@ with col1:
                 else:
                     st.error("Lokacija nije pronađena.")
             except Exception as e:
-                st.error(f"Greška pri traženju lokacije: {e}")
+                st.error(f"Greška: {e}")
 
 with col2:
     st.subheader("Generirani opis")
@@ -49,50 +50,66 @@ with col2:
                         "content-type": "application/json"
                     }
                     
-                    prompt = f"""Napiši formalan opis lokacije na hrvatskom jeziku za sigurnosnu analizu.
+                    prompt = f"""Napiši detaljan, formalan opis lokacije na hrvatskom jeziku za sigurnosnu analizu.
 
 Lokacija: {st.session_state.location.address}
 Koordinate: {st.session_state.location.latitude}, {st.session_state.location.longitude}
 
-Sekcije:
+Napiši sljedeće sekcije:
 1. Opis lokacije
 2. Opis okolnih građevina, površina i okoliša
 3. Načini pristupa
-4. Frekvencija prometa
-5. Stanje kriminaliteta"""
+4. Frekvencija prometa (radni dani, vikend, noć)
+5. Stanje kriminaliteta u okolnom prostoru
+
+Koristi formalni stil kao u primjeru za stadion."""
 
                     response = requests.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=headers,
                         json={
                             "model": "claude-3-5-sonnet-20240620",
-                            "max_tokens": 3000,
+                            "max_tokens": 3500,
                             "temperature": 0.7,
                             "messages": [{"role": "user", "content": prompt}]
                         },
-                        timeout=60
+                        timeout=70
                     )
 
                     if response.status_code == 200:
                         opis = response.json()["content"][0]["text"]
-                        st.text_area("Rezultat:", opis, height=600)
+                        st.success("✅ Opis generiran!")
+                        st.text_area("Generirani opis:", opis, height=550)
                         
-                        # Word
+                        # === POPRAVLJENO SPREMANJE WORD DOKUMENTA ===
                         doc = Document()
-                        doc.add_heading('Opis lokacije', 0)
+                        doc.add_heading('Snimka postojećeg stanja', 0)
+                        doc.add_heading('Opis lokacije', level=1)
                         doc.add_paragraph(opis)
-                        filename = f"opis_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
-                        doc.save(filename)
                         
-                        with open(filename, "rb") as f:
-                            st.download_button("Preuzmi Word", f, filename)
+                        filename = f"Opis_lokacije_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+                        
+                        # Spremanje u memory buffer da izbjegnemo encoding probleme
+                        buffer = io.BytesIO()
+                        doc.save(buffer)
+                        buffer.seek(0)
+                        
+                        st.download_button(
+                            label="💾 Preuzmi Word dokument",
+                            data=buffer,
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
                     else:
                         st.error(f"API greška: {response.status_code}")
-                        st.write(response.text)
+                        st.write(response.text[:500])
                         
                 except Exception as e:
                     st.error(f"Greška: {str(e)}")
     else:
-        st.info("Unesite API ključ i pronađite lokaciju.")
+        if not api_key:
+            st.warning("⚠️ Unesi Anthropic API ključ u sidebar.")
+        else:
+            st.info("Prvo pronađi lokaciju.")
 
-st.caption("Debug verzija • Ako i dalje ne radi, javi mi što točno vidiš")
+st.caption("Popravljena encoding verzija")
