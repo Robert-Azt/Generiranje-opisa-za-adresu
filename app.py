@@ -170,6 +170,75 @@ def fetch_osm_context(lat, lon, radius=350):
     }
 
 
+
+def identify_location(api_key, location_address, lat, lon):
+    """
+    Korak 0: Claude s web_search-om identificira sto se nalazi na adresi
+    i kategorizira okolicu. Vraca strukturirani opis za sve ostale promptove.
+    """
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+
+    prompt = f"""Istrazi lokaciju i odgovori SAMO JSON objektom bez komentara i markdown oznaka.
+
+Adresa: {location_address}
+Koordinate: {lat:.6f}, {lon:.6f}
+
+Pretrazi web i saznaj:
+1. Sto se tocno nalazi na ovoj adresi (zgrada, objekt, institucija, stadion, park, skola, poslovni objekt...)?
+2. Koje ulice okruzuju lokaciju (navedi tocna imena)?
+3. Koje kategorije sadrzaja postoje u okolici? Koristi generike nazive, bez konkretnih imena:
+   npr. ugostiteljski objekti, stambene zgrade, poslovni objekti, trgovacki centri, javne ustanove, zelene povrsine.
+4. Kako je lokacija prometno povezana (tramvaj, bus, koje linije/stanice)?
+
+Odgovori ISKLJUCIVO ovim JSON objektom:
+{{
+  "objekt_na_adresi": "konkretan naziv i tip objekta koji se nalazi na adresi",
+  "tip_objekta": "jedna kategorija: stambena zgrada / poslovni objekt / sportski objekt / javna ustanova / skola / bolnica / park / industrijsko postrojenje / misovito",
+  "okolne_ulice": "stvarna imena ulica odvojena zarezom",
+  "kategorije_okolice": "genericki opis sadrzaja u okolici bez konkretnih naziva objekata",
+  "javni_prijevoz": "opis javnog prijevoza s linijama i stanicama",
+  "dodatni_kontekst": "ostalo relevantno za sigurnosni elaborat"
+}}"""
+
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": prompt}],
+                "tools": [{"type": "web_search_20250305", "name": "web_search"}]
+            },
+            timeout=60
+        )
+
+        if response.status_code != 200:
+            return None
+
+        content = response.json().get("content", [])
+        raw = ""
+        for block in content:
+            if block.get("type") == "text":
+                raw += block.get("text", "")
+
+        raw = raw.strip()
+        if "```" in raw:
+            for part in raw.split("```"):
+                part = part.strip().lstrip("json").strip()
+                if part.startswith("{"):
+                    raw = part
+                    break
+
+        return json.loads(raw)
+
+    except Exception:
+        return None
+
 def build_context_string(osm):
     """Složi čitljiv kontekst za Claude prompt."""
     parts = []
@@ -192,98 +261,47 @@ def build_context_string(osm):
     return "\n".join(parts) if parts else ""
 
 
-def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, retries=4):
+def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, retries=4):
     """Jedan API poziv po tablici, s retry na 429."""
     keys_list = "\n".join(f'  "{key}": "..."' for (_, key) in table["rows"])
     row_descriptions = "\n".join(
-        f'- "{key}": 3-5 rečenica o "{label}"'
+        f'- "{key}": 3-5 recenica o "{label}"' 
         for (label, key) in table["rows"]
     )
 
-    context_block = ""
-    if context_str:
-        context_block = f"""
-Stvarni podaci o okolici — OBVEZNO ih koristi u tekstu (navodi prava imena ulica i sadržaja):
-{context_str}
-"""
-
-    prompt = f"""Ti si stručnjak za izradu sigurnosnih elaborata u Hrvatskoj. Piši formalno i birokratski.
-
-Lokacija: {location_address}
-Koordinate: {lat:.6f}, {lon:.6f}
-{context_block}
-Tablica: {table['number']} — {table['title']}
-{row_descriptions}
-
-Svaki tekst: 3-5 povezanih rečenica. Gdje je relevantno, navodi konkretna imena okolnih ulica i objekata.
-Čist tekst bez formatiranja. VAŽNO: u tekstu ne smije biti navodnika niti posebnih znakova koji bi pokvarili JSON.
-
-Odgovori SAMO ovim JSON objektom (svaka vrijednost mora biti valjani JSON string):
-{{
-{keys_list}
-}}"""
-
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-    }
-
-    for attempt in range(retries):
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 1500,
-                "temperature": 0.5,
-                "messages": [{"role": "user", "content": prompt}]
-            },
-            timeout=45
+    objekt_block = ""
+    if location_info:
+        objekt_block = (
+            "\nOBJEKT NA ADRESI (elaborat se pise za ovaj objekt):\n"
+            f"- Naziv i tip: {location_info.get('objekt_na_adresi', '')}\n"
+            f"- Kategorija: {location_info.get('tip_objekta', '')}\n"
+            f"- Dodatni kontekst: {location_info.get('dodatni_kontekst', '')}\n"
+            "\nPODACI O OKOLICI (ne navodi konkretna imena kaficau/restorana, koristi kategorije):\n"
+            f"- Okolne ulice: {location_info.get('okolne_ulice', '')}\n"
+            f"- Sadrzaji: {location_info.get('kategorije_okolice', '')}\n"
+            f"- Javni prijevoz: {location_info.get('javni_prijevoz', '')}\n"
         )
+    elif context_str:
+        objekt_block = f"\nPodaci o lokaciji:\n{context_str}\n"
 
-        if response.status_code == 429:
-            time.sleep(5 * (attempt + 1))
-            continue
-
-        if response.status_code != 200:
-            raise Exception(f"Tablica {table['number']} — greška {response.status_code}: {response.text}")
-
-        raw = response.json()["content"][0]["text"].strip()
-        if "```" in raw:
-            for part in raw.split("```"):
-                part = part.strip().lstrip("json").strip()
-                if part.startswith("{"):
-                    raw = part
-                    break
-
-        # Pokušaj 1: direktni json.loads
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-
-        # Pokušaj 2: izvuci svaki ključ regex-om (radi čak i za nevaljani JSON)
-        import re
-        result = {}
-        for (_, key) in table["rows"]:
-            # Traži "key": "...tekst..." — uzima sve do sljedećeg ", ili kraja }
-            pattern = rf'"{re.escape(key)}"\s*:\s*"((?:[^"\\]|\\.)*)\"'
-            m = re.search(pattern, raw, re.DOTALL)
-            if m:
-                # Dekodiraj escape sekvence
-                value = m.group(1).replace('\\"', '"').replace('\\n', ' ').replace('\\t', ' ')
-                result[key] = value.strip()
-            else:
-                result[key] = ""
-
-        if any(result.values()):
-            return result
-
-        raise Exception(f"Tablica {table['number']} — ne mogu parsirati odgovor:\n{raw[:300]}")
-
-    raise Exception(f"Tablica {table['number']} — previše pokušaja (rate limit)")
-
+    prompt = (
+        "Ti si strucnjak za izradu sigurnosnih elaborata u Hrvatskoj. Pisi formalno i birokratski.\n\n"
+        f"Lokacija: {location_address}\n"
+        f"Koordinate: {lat:.6f}, {lon:.6f}\n"
+        f"{objekt_block}\n"
+        "UPUTE:\n"
+        "- Pisi specificno za tip objekta naveden gore\n"
+        "- Navodi prava imena ulica gdje je relevantno\n"
+        "- Za sadrzaje u okolici koristi kategorije (ugostiteljski objekti, stambene zgrade...) ne konkretna imena\n"
+        "- 3-5 recenica po polju, cist tekst bez formatiranja\n"
+        "- Bez navodnika u tekstu (pokvarilo bi JSON)\n\n"
+        f"Tablica: {table['number']} - {table['title']}\n"
+        f"{row_descriptions}\n\n"
+        "Odgovori SAMO ovim JSON objektom:\n"
+        "{\n"
+        f"{keys_list}\n"
+        "}"
+    )
 
 def add_section_table(doc, table, data):
     heading = doc.add_heading(table["section"], level=3)
@@ -326,19 +344,30 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     st.success(f"📍 {location.address}")
 
-    context_str = ""
-    with st.spinner("🗺️ Dohvat podataka o okolici (ulice, POI)..."):
-        try:
-            osm_data = fetch_osm_context(lat, lon)
-            context_str = build_context_string(osm_data)
-        except Exception as e:
-            st.warning(f"Podaci o okolici nisu dostupni ({e}), generiram bez njih.")
+    # Korak 1: identifikacija objekta web searchom
+    location_info = None
+    with st.spinner("🔍 Identifikacija objekta na adresi (web search)..."):
+        location_info = identify_location(api_key, location.address, lat, lon)
 
-    if context_str:
-        with st.expander("🗺️ Dohvaćeni podaci o okolici", expanded=False):
-            st.text(context_str)
+    if location_info:
+        with st.expander("🏢 Identificirani objekt i okolica", expanded=True):
+            st.markdown(f"**Objekt:** {location_info.get('objekt_na_adresi', '—')}")
+            st.markdown(f"**Tip:** {location_info.get('tip_objekta', '—')}")
+            st.markdown(f"**Okolne ulice:** {location_info.get('okolne_ulice', '—')}")
+            st.markdown(f"**Sadržaji u okolici:** {location_info.get('kategorije_okolice', '—')}")
+            st.markdown(f"**Javni prijevoz:** {location_info.get('javni_prijevoz', '—')}")
     else:
-        st.info("ℹ️ Podaci o okolici nisu dohvaćeni — elaborat će biti generiran na temelju adrese.")
+        st.warning("Identifikacija objekta nije uspjela — elaborat će biti generiran na temelju adrese.")
+
+    # Korak 2: OSM fallback (okolne ulice ako web search nije dao dovoljno)
+    context_str = ""
+    if not location_info:
+        with st.spinner("🗺️ Dohvat podataka o okolici (fallback)..."):
+            try:
+                osm_data = fetch_osm_context(lat, lon)
+                context_str = build_context_string(osm_data)
+            except Exception:
+                pass
 
     total = len(TABLES)
     progress = st.progress(0, text="Generiranje elaborata...")
@@ -348,7 +377,8 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     def fetch(table):
         return table["number"], call_claude_one_table(
-            api_key, location.address, lat, lon, context_str, table
+            api_key, location.address, lat, lon, context_str, table,
+            location_info=location_info
         )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
