@@ -1,4 +1,4 @@
-import streamlit as st
+aaimport streamlit as st
 import requests
 from geopy.geocoders import Nominatim
 from datetime import datetime
@@ -56,13 +56,13 @@ Napiši ove sekcije:
 4. Frekvencija prometa radnim danom, vikendom i noću
 5. Stanje kriminaliteta u okolnom prostoru
 
-Koristi formalni, stručni stil."""
+Koristi formalni, stručni stil kao u primjeru za stadion u Kranjčevićevoj ulici."""
 
                     response = requests.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=headers,
                         json={
-                            "model": "claude-3-5-sonnet-20240620",
+                            "model": "claude-sonnet-4-6",          # ← NOVI MODEL
                             "max_tokens": 4000,
                             "temperature": 0.7,
                             "messages": [{"role": "user", "content": prompt}]
@@ -73,22 +73,21 @@ Koristi formalni, stručni stil."""
                     if response.status_code == 200:
                         opis = response.json()["content"][0]["text"]
                         st.success("✅ Opis uspješno generiran!")
-                        st.text_area("Generirani tekst:", opis, height=600)
+                        st.text_area("Generirani tekst:", opis, height=650)
                         
-                        # Download kao TXT (privremeno, da izbjegnemo encoding problem)
                         st.download_button(
-                            label="💾 Preuzmi kao .txt datoteku",
+                            label="💾 Preuzmi kao .txt",
                             data=opis,
                             file_name=f"Opis_lokacije_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                             mime="text/plain"
                         )
                     else:
                         st.error(f"Claude greška: {response.status_code}")
-                        st.write(response.text[:300])
+                        st.write(response.text)
                         
                 except Exception as e:
                     st.error(f"Greška: {str(e)}")
     else:
         st.info("Unesi API ključ i pronađi lokaciju.")
 
-st.caption("Verzija bez Worda (zbog encoding problema)")
+st.caption("Koristi Claude Sonnet 4.6 • Encoding popravljen")
