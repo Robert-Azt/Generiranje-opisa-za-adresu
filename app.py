@@ -16,11 +16,88 @@ with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
 
+
+# Autocomplete za adresu — Nominatim search dok korisnik tipka
+if "address_input" not in st.session_state:
+    st.session_state["address_input"] = "Ilocka ulica 34, Zagreb"
+
+autocomplete_html = """
+<style>
+  #addr-wrap { position:relative; width:100%; font-family:sans-serif; }
+  #addr-input {
+    width:100%; padding:8px 12px; font-size:15px;
+    border:1px solid #ccc; border-radius:6px; box-sizing:border-box; outline:none;
+  }
+  #addr-input:focus { border-color:#f63366; box-shadow:0 0 0 2px rgba(246,51,102,.2); }
+  #suggestions {
+    position:absolute; top:100%; left:0; right:0; z-index:9999;
+    background:white; border:1px solid #ddd; border-top:none;
+    border-radius:0 0 6px 6px; max-height:220px; overflow-y:auto;
+    box-shadow:0 4px 12px rgba(0,0,0,.1); display:none;
+  }
+  .sug-item { padding:8px 12px; cursor:pointer; font-size:14px; border-bottom:1px solid #f0f0f0; }
+  .sug-item:hover { background:#f63366; color:white; }
+  .sug-item:last-child { border-bottom:none; }
+</style>
+<div id="addr-wrap">
+  <input id="addr-input" type="text" placeholder="Unesite adresu ili koordinateâ¦"
+         autocomplete="off" spellcheck="false" />
+  <div id="suggestions"></div>
+</div>
+<script>
+const input = document.getElementById("addr-input");
+const box   = document.getElementById("suggestions");
+let timer = null;
+input.addEventListener("input", () => {
+  clearTimeout(timer);
+  const q = input.value.trim();
+  if (q.length < 3) { box.style.display = "none"; return; }
+  timer = setTimeout(() => fetchSug(q), 400);
+});
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter") { box.style.display = "none"; send(input.value); }
+});
+document.addEventListener("click", e => {
+  if (!document.getElementById("addr-wrap").contains(e.target)) box.style.display = "none";
+});
+async function fetchSug(q) {
+  try {
+    const url = "https://nominatim.openstreetmap.org/search?q=" + encodeURIComponent(q)
+              + "&format=json&limit=6&addressdetails=1";
+    const res = await fetch(url, { headers: { "Accept-Language": "hr", "User-Agent": "lokacija_generator_hr_v3" } });
+    const data = await res.json();
+    render(data);
+  } catch(e) { box.style.display = "none"; }
+}
+function render(items) {
+  box.innerHTML = "";
+  if (!items.length) { box.style.display = "none"; return; }
+  items.forEach(item => {
+    const d = document.createElement("div");
+    d.className = "sug-item";
+    d.textContent = item.display_name;
+    d.addEventListener("click", () => { input.value = item.display_name; box.style.display = "none"; send(item.display_name); });
+    box.appendChild(d);
+  });
+  box.style.display = "block";
+}
+function send(val) {
+  window.parent.postMessage({ type: "streamlit:setComponentValue", value: val }, "*");
+}
+</script>
+"""
+
+selected = st.components.v1.html(autocomplete_html, height=55, scrolling=False)
+if selected and isinstance(selected, str) and selected.strip():
+    st.session_state["address_input"] = selected.strip()
+
 address = st.text_input(
-    "Unesite adresu ili koordinate",
-    "Iločka ulica 34, Zagreb",
-    help="Primjeri: Savska cesta 18, Zagreb  |  45.8095, 15.9578  |  45°46\'04.4\"N 15°59\'27.7\"E"
+    "Potvrdi ili uredi adresu",
+    value=st.session_state["address_input"],
+    key="address_input",
+    help="Primjeri: Savska cesta 18, Zagreb  |  45.8095, 15.9578  |  DMS format: 45 46 04N 15 59 27E"
 )
+
 
 
 def parse_coords(text):
