@@ -530,7 +530,8 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                     "tip i sirinu prometnice, broj traka, semafore, pjesacke prijelaze, "
                     "nadzemne vodove i dalekovode, stupove rasvjete, "
                     "tip okolne gradnje, ograde, zelenilo, nogostupe. "
-                    "Pisi samo ono sto stvarno vidis na fotografijama. "
+                    "NE spominji da postoje fotografije, street view, snimke ni slike — "
+                    "pisi kao da osobno opisujes lokaciju. "
                     "NE spominji boje fasada, marke ili boje vozila, reklame ni natpise."
                 )
             })
@@ -542,7 +543,9 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                     "Analiziraj sto vidis i koristi u opisu: tip prometnice, sirina kolnika, "
                     "vidljivi elementi infrastrukture (stupovi, vodovi, semafori), "
                     "okolna gradnja, zelenilo, pristupne ulice. "
-                    "Pisi samo ono sto stvarno vidis na fotografijama."
+                    "NE spominji da postoje fotografije ni snimke — "
+                    "pisi kao da osobno opisujes lokaciju. "
+                    "NE spominji boje fasada, marke vozila, reklame ni natpise."
                 )
             })
         for b64 in images_b64:
