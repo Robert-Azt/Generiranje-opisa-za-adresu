@@ -567,6 +567,9 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
         "content-type": "application/json"
     }
 
+    # Sa slikama treba više vremena za obradu
+    timeout = 90 if image_blocks else 45
+
     for attempt in range(retries):
         response = requests.post(
             "https://api.anthropic.com/v1/messages",
@@ -580,7 +583,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
                     "content": (image_blocks or []) + [{"type": "text", "text": prompt}]
                 }]
             },
-            timeout=45
+            timeout=timeout
         )
 
         if response.status_code in (429, 529):
@@ -810,6 +813,9 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     errors = []
     done_count = 0
 
+    # Sa slikama smanji paralelnost — veći payload zahtijeva više vremena
+    max_workers = 3 if image_blocks else 5
+
     def fetch(table):
         return table["number"], call_claude_one_table(
             api_key, display_name, lat, lon, context_str, table,
@@ -817,7 +823,7 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             image_blocks=image_blocks
         )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fetch, t): t for t in TABLES}
         for future in concurrent.futures.as_completed(futures):
             try:
@@ -837,10 +843,11 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             f"{t['number']} ({t['title']})"
             for t in TABLES if t["number"] in failed_tables
         )
-        st.warning(
-            f"⚠️ {len(errors)} tablica nisu generirane ({failed_names}) — "
-            f"označene su u dokumentu. Ostale tablice su generirane i dostupne za preuzimanje."
-        )
+        with st.expander(f"⚠️ {len(errors)} tablica nije generirano — klikni za detalje", expanded=True):
+            st.warning(f"Tablice: {failed_names}")
+            for e in errors:
+                st.caption(f"• {e[:200]}")
+            st.info("Ostale tablice su generirane — dokument možeš preuzeti i ručno dopuniti.")
     for table in TABLES:
         if table["number"] in failed_tables:
             for (label, key) in table["rows"]:
