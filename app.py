@@ -45,7 +45,7 @@ with st.sidebar:
         "🌍 Google Street View (automatski)": {
             "samo lokacija":    "$0.10–0.15 (Anthropic)",
             "s identifikacijom": "$0.38–0.50 (Anthropic)",
-            "napomena": "Google: besplatno ~7.000 elaborata/mj. ($200 free kredita)"
+            "napomena": "Google: besplatno ~7.000 elaborata/mj. | Aktiviraj: Street View Static API + Maps Static API"
         },
     }
     p = price_map[vizualni_mod]
@@ -432,6 +432,29 @@ def build_context_string(osm):
 
 
 
+def fetch_satellite_image(lat, lon, google_api_key, zoom=17):
+    """
+    Dohvati hybrid satelitsku snimku (satelit + oznake ulica) za koordinate.
+    Vraca base64 enkodiranu sliku ili None.
+    """
+    import base64
+    url = (
+        f"https://maps.googleapis.com/maps/api/staticmap"
+        f"?center={lat},{lon}"
+        f"&zoom={zoom}"
+        f"&size=640x640"
+        f"&maptype=hybrid"
+        f"&key={google_api_key}"
+    )
+    try:
+        r = requests.get(url, timeout=10)
+        if r.ok and r.headers.get("content-type", "").startswith("image"):
+            return base64.b64encode(r.content).decode("utf-8")
+    except Exception:
+        pass
+    return None
+
+
 def fetch_street_view_images(lat, lon, google_api_key):
     """
     Dohvati 4 Street View slike (S/J/I/Z) za koordinate.
@@ -468,45 +491,59 @@ def photos_to_base64(uploaded_files):
     return images
 
 
-def build_image_context_block(images_b64, source="foto"):
+def build_image_context_block(images_b64, source="foto", satellite_b64=None):
     """
     Gradi listu image blokova za Anthropic API poruku.
     source: "foto" ili "streetview"
+    satellite_b64: opcionalna satelitska snimka
     """
-    if not images_b64:
+    if not images_b64 and not satellite_b64:
         return []
     blocks = []
-    if source == "streetview":
+
+    # Satelitska snimka ide prva — daje kontekst odozgo
+    if satellite_b64:
         blocks.append({
             "type": "text",
             "text": (
-                "Priložene su Street View fotografije lokacije "
-                "(smjerovi: sjever, istok, jug, zapad). "
-                "Koristi ih ISKLJUČIVO za razumijevanje okruženja — "
-                "koje ulice prolaze, kakva je okolna izgradnja, tip prometnice, "
-                "zelenilo, pješačke površine. "
-                "NE opisuj detalje poput boja fasada, natpisa ili vozila."
+                "Prva slika je satelitska/hybrid snimka lokacije s Google Mapsa "
+                "(pogled odozgo sa svim oznakama ulica i objekata). "
+                "Koristi je za razumijevanje rasporeda ulica, okolne izgradnje, "
+                "pristupnih puteva, zelenih površina i šireg konteksta lokacije. "
+                "Čitaj nazive ulica i oznake objekata direktno s karte."
             )
         })
-    else:
-        blocks.append({
-            "type": "text",
-            "text": (
-                "Priložene su fotografije lokacije koje je snimio korisnik. "
-                "Koristi ih ISKLJUČIVO za razumijevanje okruženja — "
-                "tip prometnice, okolna izgradnja, pristupne ulice, zelenilo. "
-                "NE opisuj specifične detalje objekata koji nisu predmet elaborata."
-            )
-        })
-    for b64 in images_b64:
         blocks.append({
             "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": b64
-            }
+            "source": {"type": "base64", "media_type": "image/png", "data": satellite_b64}
         })
+
+    if images_b64:
+        if source == "streetview":
+            blocks.append({
+                "type": "text",
+                "text": (
+                    "Sljedeće su Street View fotografije lokacije "
+                    "(smjerovi: sjever, istok, jug, zapad — pogled s razine tla). "
+                    "Koristi ih za razumijevanje izgleda prometnice, okolnih zgrada, "
+                    "zelenila i pješačkih površina."
+                )
+            })
+        else:
+            blocks.append({
+                "type": "text",
+                "text": (
+                    "Sljedeće su fotografije lokacije koje je snimio korisnik. "
+                    "Koristi ih za razumijevanje okruženja — tip prometnice, "
+                    "okolna izgradnja, pristupne ulice, zelenilo."
+                )
+            })
+        for b64 in images_b64:
+            blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}
+            })
+
     return blocks
 
 
@@ -794,18 +831,37 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
         st.success(f"✓ {len(uploaded_photos)} fotografija pripremljeno za analizu")
 
     elif vizualni_mod == "🌍 Google Street View (automatski)" and google_api_key:
+        sv_images = []
+        satellite_b64 = None
+
+        with st.spinner("🛰️ Dohvat satelitske snimke..."):
+            satellite_b64 = fetch_satellite_image(lat, lon, google_api_key)
+
         with st.spinner("🌍 Dohvat Street View slika..."):
             sv_images = fetch_street_view_images(lat, lon, google_api_key)
-        if sv_images:
-            image_blocks = build_image_context_block(sv_images, source="streetview")
-            st.success(f"✓ {len(sv_images)} Street View slika dohvaćeno")
-            # Prikazi thumbnail slike
-            cols = st.columns(len(sv_images))
-            for i, b64 in enumerate(sv_images):
-                import base64
-                cols[i].image(f"data:image/jpeg;base64,{b64}", use_container_width=True)
+
+        if satellite_b64 or sv_images:
+            image_blocks = build_image_context_block(
+                sv_images, source="streetview", satellite_b64=satellite_b64
+            )
+            # Prikazi satelitsku snimku
+            if satellite_b64:
+                st.subheader("🛰️ Satelitska snimka")
+                st.image(f"data:image/png;base64,{satellite_b64}", use_container_width=True)
+
+            # Prikazi Street View thumbnails
+            if sv_images:
+                st.subheader("🌍 Street View")
+                cols = st.columns(len(sv_images))
+                dirs = ["Sjever", "Istok", "Jug", "Zapad"]
+                for i, b64 in enumerate(sv_images):
+                    cols[i].image(f"data:image/jpeg;base64,{b64}", use_container_width=True)
+                    cols[i].caption(dirs[i] if i < len(dirs) else "")
+
+            n_total = (1 if satellite_b64 else 0) + len(sv_images)
+            st.success(f"✓ {n_total} slika pripremljeno za analizu")
         else:
-            st.warning("Street View nije dostupan za ovu lokaciju — nastavljam bez slika.")
+            st.warning("Google slike nisu dostupne za ovu lokaciju — nastavljam bez slika.")
 
     total = len(TABLES)
     progress = st.progress(0, text="Generiranje elaborata...")
