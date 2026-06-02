@@ -582,6 +582,21 @@ def add_section_table(doc, table, data):
     doc.add_paragraph()
 
 
+col1, col2 = st.columns([3, 1])
+with col1:
+    nacin_rada = st.radio(
+        "Način rada",
+        options=["🏢 Identificiraj objekt na adresi", "📍 Samo lokacija (bez identifikacije objekta)"],
+        horizontal=True,
+    )
+identify_mode = nacin_rada.startswith("🏢")
+
+with col2:
+    if identify_mode:
+        st.info("💰 ~$0.35–0.45 / elaborat", icon="💡")
+    else:
+        st.info("💰 ~$0.08–0.12 / elaborat", icon="💡")
+
 if st.button("🚀 Generiraj elaborat", type="primary"):
     if not api_key:
         st.error("Unesi API ključ!")
@@ -610,20 +625,27 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     st.success(f"📍 {display_name}")
 
-    # Korak 1: identifikacija objekta web searchom
+    # Korak 1: identifikacija objekta web searchom (samo ako je odabrano)
     location_info = None
-    with st.spinner("🔍 Identifikacija objekta na adresi (web search)..."):
-        location_info = identify_location(api_key, display_name, lat, lon, coords_input=coords_input)
+    if identify_mode:
+        with st.spinner("🔍 Identifikacija objekta na adresi (web search)..."):
+            location_info = identify_location(api_key, display_name, lat, lon, coords_input=coords_input)
 
-    if location_info:
-        with st.expander("🏢 Identificirani objekt i okolica", expanded=True):
-            st.markdown(f"**Objekt:** {location_info.get('objekt_na_adresi', '—')}")
-            st.markdown(f"**Tip:** {location_info.get('tip_objekta', '—')}")
-            st.markdown(f"**Okolne ulice:** {location_info.get('okolne_ulice', '—')}")
-            st.markdown(f"**Sadržaji u okolici:** {location_info.get('kategorije_okolice', '—')}")
-            st.markdown(f"**Javni prijevoz:** {location_info.get('javni_prijevoz', '—')}")
+        if location_info:
+            with st.expander("🏢 Identificirani objekt i okolica", expanded=True):
+                st.markdown(f"**Objekt:** {location_info.get('objekt_na_adresi', '—')}")
+                st.markdown(f"**Tip:** {location_info.get('tip_objekta', '—')}")
+                st.markdown(f"**Okolne ulice:** {location_info.get('okolne_ulice', '—')}")
+                st.markdown(f"**Sadržaji u okolici:** {location_info.get('kategorije_okolice', '—')}")
+                st.markdown(f"**Javni prijevoz:** {location_info.get('javni_prijevoz', '—')}")
+        else:
+            st.warning(
+                "⚠️ Identifikacija objekta nije uspjela (web search nije vratio rezultat). "
+                "Elaborat će se nastaviti generirati kao **Samo lokacija** — "
+                "na temelju adrese i podataka o okolici bez prepoznavanja konkretnog objekta."
+            )
     else:
-        st.warning("Identifikacija objekta nije uspjela — elaborat će biti generiran na temelju adrese.")
+        st.info("📍 Način rada: samo lokacija — elaborat se generira bez identifikacije objekta.")
 
     # Korak 2: OSM fallback (okolne ulice ako web search nije dao dovoljno)
     context_str = ""
