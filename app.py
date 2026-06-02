@@ -508,9 +508,10 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
             "text": (
                 "Prva slika je satelitska/hybrid snimka lokacije s Google Mapsa "
                 "(pogled odozgo sa svim oznakama ulica i objekata). "
-                "Koristi je za razumijevanje rasporeda ulica, okolne izgradnje, "
-                "pristupnih puteva, zelenih površina i šireg konteksta lokacije. "
-                "Čitaj nazive ulica i oznake objekata direktno s karte."
+                "Koristi je za: raspored ulica i krakova krizanja, sirine kolnika, "
+                "okolnu izgradnju, zelene povrsine, parkiralista, pristupne puteve. "
+                "Citaj nazive ulica i oznake objekata direktno s karte. "
+                "Ako vidis oznake objekata u okolici (skola, crkva...) — to je kontekst okoline, ne predmet elaborata."
             )
         })
         blocks.append({
@@ -525,8 +526,12 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                 "text": (
                     "Sljedeće su Street View fotografije lokacije "
                     "(smjerovi: sjever, istok, jug, zapad — pogled s razine tla). "
-                    "Koristi ih za razumijevanje izgleda prometnice, okolnih zgrada, "
-                    "zelenila i pješačkih površina."
+                    "Analiziraj sto vidis i koristi u opisu: "
+                    "tip i sirinu prometnice, broj traka, semafore, pjesacke prijelaze, "
+                    "nadzemne vodove i dalekovode, stupove rasvjete, "
+                    "tip okolne gradnje, ograde, zelenilo, nogostupe. "
+                    "Pisi samo ono sto stvarno vidis na fotografijama. "
+                    "NE spominji boje fasada, marke ili boje vozila, reklame ni natpise."
                 )
             })
         else:
@@ -534,8 +539,10 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                 "type": "text",
                 "text": (
                     "Sljedeće su fotografije lokacije koje je snimio korisnik. "
-                    "Koristi ih za razumijevanje okruženja — tip prometnice, "
-                    "okolna izgradnja, pristupne ulice, zelenilo."
+                    "Analiziraj sto vidis i koristi u opisu: tip prometnice, sirina kolnika, "
+                    "vidljivi elementi infrastrukture (stupovi, vodovi, semafori), "
+                    "okolna gradnja, zelenilo, pristupne ulice. "
+                    "Pisi samo ono sto stvarno vidis na fotografijama."
                 )
             })
         for b64 in images_b64:
