@@ -577,18 +577,35 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
                 done_count += 1
                 progress.progress(done_count / total, text=f"Završeno {done_count}/{total} tablica...")
 
-    if errors:
-        st.error("Greške:\n" + "\n".join(errors))
-        st.stop()
-
     progress.progress(1.0, text="Generiranje završeno!")
+
+    # Prikazi upozorenja za neuspjele tablice — ali NE zaustavljaj
+    failed_tables = [e.split(" - ")[0].replace("Tablica ", "") for e in errors if "Tablica" in e]
+    if errors:
+        failed_names = ", ".join(
+            f"{t['number']} ({t['title']})"
+            for t in TABLES if t["number"] in failed_tables
+        )
+        st.warning(
+            f"⚠️ {len(errors)} tablica nisu generirane ({failed_names}) — "
+            f"označene su u dokumentu. Ostale tablice su generirane i dostupne za preuzimanje."
+        )
+
+    # Za svaku neuspjelu tablicu popuni prazna polja s placeholder tekstom
+    for table in TABLES:
+        if table["number"] in failed_tables:
+            for (label, key) in table["rows"]:
+                if key not in results:
+                    results[key] = f"[NIJE GENERIRANO — greška pri generiranju tablice {table['number']}]"
 
     st.subheader("📄 Generirani sadržaj")
     for table in TABLES:
-        with st.expander(f"Tablica {table['number']} — {table['title']}", expanded=False):
-            for label, key in table["rows"]:
+        failed = table["number"] in failed_tables
+        label = f"⚠️ Tablica {table['number']} — {table['title']} (nije generirano)" if failed else f"Tablica {table['number']} — {table['title']}"
+        with st.expander(label, expanded=False):
+            for label_row, key in table["rows"]:
                 val = results.get(key, "")
-                st.markdown(f"**{label}:**")
+                st.markdown(f"**{label_row}:**")
                 st.write(val)
 
     doc = Document()
