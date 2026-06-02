@@ -16,6 +16,53 @@ with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
 
+    st.divider()
+    st.header("📸 Kontekst lokacije")
+    st.caption("Slike pomažu Claudeu da bolje razumije okruženje.")
+
+    vizualni_mod = st.radio(
+        "Izvor slika",
+        options=[
+            "Bez slika",
+            "📷 Upload vlastitih fotografija",
+            "🌍 Google Street View (automatski)",
+        ],
+        index=0,
+    )
+
+    # Cijene ovisno o modu
+    price_map = {
+        "Bez slika":                          ("samo lokacija", "$0.08–0.12", "s identifikacijom", "$0.35–0.45"),
+        "📷 Upload vlastitih fotografija":     ("samo lokacija", "$0.10–0.15", "s identifikacijom", "$0.38–0.50"),
+        "🌍 Google Street View (automatski)": ("samo lokacija", "$0.10–0.15", "s identifikacijom", "$0.38–0.50"),
+    }
+    pl, pl_val, pi, pi_val = price_map[vizualni_mod]
+    st.caption(f"Cijena: **{pl_val}** ({pl}) · **{pi_val}** ({pi})")
+
+    uploaded_photos = []
+    google_api_key = ""
+
+    if vizualni_mod == "📷 Upload vlastitih fotografija":
+        uploaded_photos = st.file_uploader(
+            "Dodaj fotografije lokacije",
+            accept_multiple_files=True,
+            type=["jpg", "jpeg", "png"],
+            help="Slikaj okolicu, ulice, pristupe — što bolje okruženje vidiš, to bolji opis."
+        )
+        if uploaded_photos:
+            st.success(f"✓ {len(uploaded_photos)} fotografija dodano")
+
+    elif vizualni_mod == "🌍 Google Street View (automatski)":
+        google_api_key = st.text_input(
+            "Google Maps API Key",
+            type="password",
+            help="Potreban za dohvat Street View slika. Besplatno do 28.000 zahtjeva/mj."
+        )
+        if google_api_key:
+            st.success("✓ Google API ključ unesen")
+        else:
+            st.warning("Unesi Google API ključ za Street View")
+
 
 if "address_confirmed" not in st.session_state:
     st.session_state["address_confirmed"] = "Ilocka ulica 34, Zagreb"
@@ -318,7 +365,10 @@ def identify_location(api_key, location_address, lat, lon, coords_input=False):
             json={
                 "model": "claude-sonnet-4-6",
                 "max_tokens": 1200,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [{
+                    "role": "user",
+                    "content": (image_blocks or []) + [{"type": "text", "text": prompt}]
+                }],
                 "tools": [{"type": "web_search_20250305", "name": "web_search"}]
             },
             timeout=60
@@ -367,7 +417,85 @@ def build_context_string(osm):
 
 
 
-def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, retries=5):
+def fetch_street_view_images(lat, lon, google_api_key):
+    """
+    Dohvati 4 Street View slike (S/J/I/Z) za koordinate.
+    Vraca listu base64 enkodiranih slika ili praznu listu.
+    """
+    import base64
+    images = []
+    headings = [0, 90, 180, 270]  # Sjever, Istok, Jug, Zapad
+    for heading in headings:
+        url = (
+            f"https://maps.googleapis.com/maps/api/streetview"
+            f"?size=640x400&location={lat},{lon}"
+            f"&fov=90&heading={heading}&pitch=0"
+            f"&key={google_api_key}"
+        )
+        try:
+            r = requests.get(url, timeout=10)
+            if r.ok and r.headers.get("content-type", "").startswith("image"):
+                b64 = base64.b64encode(r.content).decode("utf-8")
+                images.append(b64)
+        except Exception:
+            pass
+    return images
+
+
+def photos_to_base64(uploaded_files):
+    """Konvertira Streamlit UploadedFile objekte u base64 stringove."""
+    import base64
+    images = []
+    for f in uploaded_files:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+        images.append(b64)
+        f.seek(0)  # reset za eventualno ponovno čitanje
+    return images
+
+
+def build_image_context_block(images_b64, source="foto"):
+    """
+    Gradi listu image blokova za Anthropic API poruku.
+    source: "foto" ili "streetview"
+    """
+    if not images_b64:
+        return []
+    blocks = []
+    if source == "streetview":
+        blocks.append({
+            "type": "text",
+            "text": (
+                "Priložene su Street View fotografije lokacije "
+                "(smjerovi: sjever, istok, jug, zapad). "
+                "Koristi ih ISKLJUČIVO za razumijevanje okruženja — "
+                "koje ulice prolaze, kakva je okolna izgradnja, tip prometnice, "
+                "zelenilo, pješačke površine. "
+                "NE opisuj detalje poput boja fasada, natpisa ili vozila."
+            )
+        })
+    else:
+        blocks.append({
+            "type": "text",
+            "text": (
+                "Priložene su fotografije lokacije koje je snimio korisnik. "
+                "Koristi ih ISKLJUČIVO za razumijevanje okruženja — "
+                "tip prometnice, okolna izgradnja, pristupne ulice, zelenilo. "
+                "NE opisuj specifične detalje objekata koji nisu predmet elaborata."
+            )
+        })
+    for b64 in images_b64:
+        blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": b64
+            }
+        })
+    return blocks
+
+
+def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, image_blocks=None, retries=5):
     """Jedan API poziv po tablici, s retry na 429."""
     import re as _re
 
@@ -432,7 +560,10 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
                 "model": "claude-sonnet-4-6",
                 "max_tokens": 1500,
                 "temperature": 0.4,
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": [{
+                    "role": "user",
+                    "content": (image_blocks or []) + [{"type": "text", "text": prompt}]
+                }]
             },
             timeout=45
         )
@@ -535,19 +666,12 @@ if typed and len(typed) >= 3 and not _is_coord_input(typed) and typed != st.sess
 
 address = typed if typed else st.session_state["address_confirmed"]
 
-col1, col2 = st.columns([3, 1])
-with col1:
-    nacin_rada = st.radio(
-        "Način rada",
-        options=["🏢 Identificiraj objekt na adresi", "📍 Samo lokacija (bez identifikacije objekta)"],
-        horizontal=True,
-    )
+nacin_rada = st.radio(
+    "Način rada",
+    options=["🏢 Identificiraj objekt na adresi", "📍 Samo lokacija (bez identifikacije objekta)"],
+    horizontal=True,
+)
 identify_mode = nacin_rada.startswith("🏢")
-with col2:
-    if identify_mode:
-        st.info("💰 ~$0.35–0.45 / elaborat")
-    else:
-        st.info("💰 ~$0.08–0.12 / elaborat")
 
 if st.button("🚀 Generiraj elaborat", type="primary"):
     if not api_key:
@@ -643,6 +767,28 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             )
         }
 
+    # Dohvat slika ovisno o odabranom modu
+    image_blocks = []
+    if vizualni_mod == "📷 Upload vlastitih fotografija" and uploaded_photos:
+        with st.spinner(f"📷 Obrada {len(uploaded_photos)} fotografija..."):
+            b64_list = photos_to_base64(uploaded_photos)
+            image_blocks = build_image_context_block(b64_list, source="foto")
+        st.success(f"✓ {len(uploaded_photos)} fotografija pripremljeno za analizu")
+
+    elif vizualni_mod == "🌍 Google Street View (automatski)" and google_api_key:
+        with st.spinner("🌍 Dohvat Street View slika..."):
+            sv_images = fetch_street_view_images(lat, lon, google_api_key)
+        if sv_images:
+            image_blocks = build_image_context_block(sv_images, source="streetview")
+            st.success(f"✓ {len(sv_images)} Street View slika dohvaćeno")
+            # Prikazi thumbnail slike
+            cols = st.columns(len(sv_images))
+            for i, b64 in enumerate(sv_images):
+                import base64
+                cols[i].image(f"data:image/jpeg;base64,{b64}", use_container_width=True)
+        else:
+            st.warning("Street View nije dostupan za ovu lokaciju — nastavljam bez slika.")
+
     total = len(TABLES)
     progress = st.progress(0, text="Generiranje elaborata...")
     results = {}
@@ -652,7 +798,8 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     def fetch(table):
         return table["number"], call_claude_one_table(
             api_key, display_name, lat, lon, context_str, table,
-            location_info=location_info
+            location_info=location_info,
+            image_blocks=image_blocks
         )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
