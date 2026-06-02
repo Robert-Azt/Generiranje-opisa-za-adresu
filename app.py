@@ -30,10 +30,10 @@ autocomplete_html = """
   }
   #addr-input:focus { border-color:#f63366; box-shadow:0 0 0 2px rgba(246,51,102,.2); }
   #suggestions {
-    position:absolute; top:100%; left:0; right:0; z-index:9999;
-    background:white; border:1px solid #ddd; border-top:none;
-    border-radius:0 0 6px 6px; max-height:220px; overflow-y:auto;
-    box-shadow:0 4px 12px rgba(0,0,0,.1); display:none;
+    position:fixed; z-index:999999;
+    background:white; border:1px solid #ddd;
+    border-radius:6px; max-height:260px; overflow-y:auto;
+    box-shadow:0 4px 16px rgba(0,0,0,.18); display:none;
   }
   .sug-item { padding:8px 12px; cursor:pointer; font-size:14px; border-bottom:1px solid #f0f0f0; }
   .sug-item:hover { background:#f63366; color:white; }
@@ -72,6 +72,11 @@ async function fetchSug(q) {
 function render(items) {
   box.innerHTML = "";
   if (!items.length) { box.style.display = "none"; return; }
+  // Pozicioniraj dropdown ispod input polja koristeci fixed coords
+  const rect = input.getBoundingClientRect();
+  box.style.top  = (rect.bottom + window.scrollY) + "px";
+  box.style.left = rect.left + "px";
+  box.style.width = rect.width + "px";
   items.forEach(item => {
     const d = document.createElement("div");
     d.className = "sug-item";
@@ -87,7 +92,7 @@ function send(val) {
 </script>
 """
 
-selected = st.components.v1.html(autocomplete_html, height=55, scrolling=False)
+selected = st.components.v1.html(autocomplete_html, height=320, scrolling=False)
 if selected and isinstance(selected, str) and selected.strip():
     st.session_state["address_input"] = selected.strip()
 
