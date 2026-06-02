@@ -361,7 +361,7 @@ def build_context_string(osm):
 
 
 
-def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, retries=4):
+def call_claude_one_table(api_key, location_address, lat, lon, context_str, table, location_info=None, retries=5):
     """Jedan API poziv po tablici, s retry na 429."""
     import re as _re
 
@@ -430,9 +430,9 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
             timeout=45
         )
 
-        if response.status_code == 429:
-            time.sleep(5 * (attempt + 1))
-            continue
+        if response.status_code in (429, 529):
+            wait = 5 * (2 ** attempt)  # 5s, 10s, 20s, 40s
+            time.sleep(wait)
 
         if response.status_code != 200:
             raise Exception(f"Tablica {table['number']} - greska {response.status_code}: {response.text}")
