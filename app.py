@@ -32,12 +32,27 @@ with st.sidebar:
 
     # Cijene ovisno o modu
     price_map = {
-        "Bez slika":                          ("samo lokacija", "$0.08–0.12", "s identifikacijom", "$0.35–0.45"),
-        "📷 Upload vlastitih fotografija":     ("samo lokacija", "$0.10–0.15", "s identifikacijom", "$0.38–0.50"),
-        "🌍 Google Street View (automatski)": ("samo lokacija", "$0.10–0.15", "s identifikacijom", "$0.38–0.50"),
+        "Bez slika": {
+            "samo lokacija":    "$0.08–0.12 (Anthropic)",
+            "s identifikacijom": "$0.35–0.45 (Anthropic)",
+            "napomena": ""
+        },
+        "📷 Upload vlastitih fotografija": {
+            "samo lokacija":    "$0.10–0.15 (Anthropic)",
+            "s identifikacijom": "$0.38–0.50 (Anthropic)",
+            "napomena": "Veće slike = više tokena = viša cijena"
+        },
+        "🌍 Google Street View (automatski)": {
+            "samo lokacija":    "$0.10–0.15 (Anthropic)",
+            "s identifikacijom": "$0.38–0.50 (Anthropic)",
+            "napomena": "Google: besplatno ~7.000 elaborata/mj. ($200 free kredita)"
+        },
     }
-    pl, pl_val, pi, pi_val = price_map[vizualni_mod]
-    st.caption(f"Cijena: **{pl_val}** ({pl}) · **{pi_val}** ({pi})")
+    p = price_map[vizualni_mod]
+    st.caption(f"💰 Samo lokacija: **{p['samo lokacija']}**")
+    st.caption(f"💰 S identifikacijom: **{p['s identifikacijom']}**")
+    if p["napomena"]:
+        st.caption(f"ℹ️ {p['napomena']}")
 
     uploaded_photos = []
     google_api_key = ""
