@@ -360,7 +360,7 @@ def build_context_string(osm):
         parts.append("Okolne ulice (u blizini lokacije): " + ", ".join(osm["ulice"]))
 
     if osm.get("pois"):
-        parts.append("Obližnji sadržaji i objekti: " + ", ".join(osm["pois"]))
+        parts.append("Sadrzaji u okolici (kontekst — NISU predmet elaborata): " + ", ".join(osm["pois"]))
 
     return "\n".join(parts) if parts else ""
 
@@ -597,15 +597,51 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     else:
         st.info("📍 Način rada: samo lokacija — elaborat se generira bez identifikacije objekta.")
 
-    # Korak 2: OSM fallback (okolne ulice ako web search nije dao dovoljno)
+    # Korak 2: OSM fallback + postavi minimalni location_info za "samo lokacija" mod
     context_str = ""
     if not location_info:
-        with st.spinner("🗺️ Dohvat podataka o okolici (fallback)..."):
+        with st.spinner("🗺️ Dohvat podataka o okolici..."):
             try:
                 osm_data = fetch_osm_context(lat, lon)
                 context_str = build_context_string(osm_data)
             except Exception:
-                pass
+                osm_data = {}
+
+        # Postavi minimalni location_info na temelju koordinata/adrese
+        # Ako su unesene koordinate bez identifikacije — vjerojatno je križanje ili lokacija bez objekta
+        if coords_input:
+            tip = "prometnica-krizanje"
+            objekt = f"Lokacija na koordinatama {lat:.6f}, {lon:.6f}"
+            if road:
+                objekt = f"Križanje / lokacija na {road}"
+                tip = "prometnica-krizanje"
+        else:
+            tip = "misovito"
+            objekt = display_name.split(",")[0] if display_name else address
+
+        # Izvuci ulice iz OSM podataka
+        ulice_lista = osm_data.get("ulice", []) if isinstance(osm_data, dict) else []
+        ulice_str = ", ".join(ulice_lista) if ulice_lista else ""
+
+        location_info = {
+            "objekt_na_adresi": objekt,
+            "tip_objekta": tip,
+            "okolne_ulice": ulice_str,
+            "kategorije_okolice": (
+                "Stambene zgrade, poslovni objekti i javne ustanove u okolici — "
+                "navedeni su kao kontekst okoline, nisu predmet ovog elaborata."
+            ),
+            "javni_prijevoz": "",
+            "dodatni_kontekst": (
+                "KLJUCNO: Predmet ovog elaborata je iskljucivo sama lokacija (tocka/krizanje) "
+                "na koordinatama koje je korisnik unio. "
+                "Okolni objekti poput skola, vrtića, trgovina, banaka i slicno "
+                "su ISKLJUCIVO kontekst okoline — elaborat se ne smije pisati o njima "
+                "kao o predmetu zastite. "
+                "Svaka tablica mora opisivati samu lokaciju (javnu povrsinu, krizanje, "
+                "prometnu infrastrukturu), a ne objekte koji se nalaze u blizini."
+            )
+        }
 
     total = len(TABLES)
     progress = st.progress(0, text="Generiranje elaborata...")
