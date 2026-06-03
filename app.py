@@ -348,21 +348,33 @@ def fetch_osm_context(lat, lon, radius=350):
 
 
 
-def provjeri_aktualno_stanje(openai_key, objekt, adresa, lat, lon):
+def provjeri_tocnost_elaborata(openai_key, objekt, adresa, tekst_elaborata):
     """
-    OpenAI gpt-4o-mini s web searchom — provjeri aktualno stanje objekta.
-    Vraca string s aktualnim informacijama ili None.
+    OpenAI gpt-4o-mini pregleda generirani tekst elaborata i provjerava
+    jesu li konkretni podaci (kapacitet, stanje, namjena...) tocni.
+    Vraca strukturirani popis netocnosti ili potvrdu da je sve OK.
     """
     if not openai_key or not openai_key.strip():
         return None
 
     upit = (
-        f"Pronadi aktualne informacije (zadnjih 2 godine) o objektu: {objekt}, adresa: {adresa} "
-        f"(koordinate: {lat:.4f}, {lon:.4f}). "
-        f"Zanima me: je li objekt trenutno otvoren ili zatvoren, je li u obnovi ili rekonstrukciji, "
-        f"postoje li promjene namjene, vlasnika ili funkcije, postoje li vazne vijesti ili promjene. "
-        f"Odgovori kratko i konkretno, samo provjerene cinjenice. "
-        f"Ako nema aktualnih promjena, napisi da objekt normalno posluje."
+        f"Pregledaj sljedeci tekst sigurnosnog elaborata za objekt: {objekt}, adresa: {adresa}.\n\n"
+        f"TEKST ELABORATA:\n{tekst_elaborata[:6000]}\n\n"
+        f"Zadatak: Pretrazi web i provjeri jesu li konkretni podaci u tekstu tocni. "
+        f"Fokusiraj se na:\n"
+        f"- Kapaciteti, povrsine, broj mjesta, broj katova\n"
+        f"- Aktualno stanje objekta (otvoren/zatvoren/u obnovi/u izgradnji)\n"
+        f"- Namjena i vlasnik\n"
+        f"- Radno vrijeme\n"
+        f"- Godina izgradnje ili otvaranja\n"
+        f"- Bilo koji drugi konkretan podatak koji se moze provjeriti\n\n"
+        f"Za svaku netocnost navedi:\n"
+        f"- Sto pise u tekstu (netocno)\n"
+        f"- Sto je tocno (s izvorom)\n"
+        f"- U kojoj tablici/sekciji se nalazi\n\n"
+        f"Ako je sve tocno, napisi: SVE OK — podaci su provjereni i tocni.\n"
+        f"Ako nisu provjerljivi (nema pouzdanih izvora), napisi: NIJE MOGUCE PROVJERITI.\n"
+        f"Budi konkretan i sazetak — samo cinjenice."
     )
 
     try:
@@ -377,7 +389,100 @@ def provjeri_aktualno_stanje(openai_key, objekt, adresa, lat, lon):
                 "tools": [{"type": "web_search_preview"}],
                 "input": upit
             },
-            timeout=30
+            timeout=60
+        )
+
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for block in item.get("content", []):
+                    if block.get("type") == "output_text":
+                        return block.get("text", "").strip()
+        return None
+
+    except Exception:
+        return None
+
+
+def ispravi_elaborat(api_key, objekt, adresa, tekst_elaborata, netocnosti):
+    """
+    Claude ispravlja elaborat na temelju liste netocnosti koje je nasao ChatGPT.
+    Vraca ispravljeni tekst samo za promijenjene tablice.
+    """
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+
+    prompt = (
+        f"Ti si strucnjak za sigurnosne elaborate. "
+        f"Objekt: {objekt}, adresa: {adresa}.\n\n"
+        f"Sljedeci tekst elaborata sadrzi netocnosti koje je utvrdio web search:\n\n"
+        f"NETOCNOSTI:\n{netocnosti}\n\n"
+        f"ORIGINALNI TEKST ELABORATA:\n{tekst_elaborata[:8000]}\n\n"
+        f"Zadatak: Ispravi SAMO netocne podatke. Ne mijenjaj stil, strukturu ni ostali tekst. "
+        f"Vrati CIJELI ispravljeni tekst elaborata, formalno i birokratski pisano. "
+        f"Svaku ispravku oznaci s [ISPRAVLJENO] na kraju recenice."
+    )
+
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 8000,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=90
+        )
+        if response.status_code == 200:
+            return response.json()["content"][0]["text"].strip()
+        return None
+    except Exception:
+        return None
+
+
+def provjeri_aktualno_stanje(openai_key, objekt, adresa, lat, lon):
+    """
+    OpenAI gpt-4o-mini s web searchom — provjeri aktualno stanje objekta.
+    Vraca string s aktualnim informacijama ili None.
+    """
+    if not openai_key or not openai_key.strip():
+        return None
+
+    upit = (
+        f"Pretrazuj web i prikupi SVE dostupne tocne informacije o objektu: {objekt}, adresa: {adresa} "
+        f"(koordinate: {lat:.4f}, {lon:.4f}). "
+        f"Traze se konkretni, provjereni podaci za sigurnosni elaborat. Pronadi i navedi:\n"
+        f"1. AKTUALNO STANJE: je li objekt otvoren, zatvoren, u obnovi, u izgradnji, planiran?\n"
+        f"2. TEHNICKE KARAKTERISTIKE: povrsina, kapacitet (broj mjesta, korisnika, zaposlenih), "
+        f"   broj katova, godina izgradnje ili planiranog otvaranja\n"
+        f"3. NAMJENA I VLASNIK: tocna namjena objekta, vlasnik ili upravljac\n"
+        f"4. VAZNE PROMJENE: sve promjene u zadnje 3 godine (rekonstrukcija, nova namjena, zatvaranje)\n"
+        f"5. RADNO VRIJEME: ako je primjenjivo\n"
+        f"Navedi TOCNE BROJEVE gdje postoje (kapacitet, povrsina...) — ne okrugljuj ni pretpostavljaj. "
+        f"Ako podatak nije dostupan, jasno napisi da nije poznat. "
+        f"Odgovori strukturirano, samo provjerene cinjenice s izvorima."
+    )
+
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Authorization": f"Bearer {openai_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "tools": [{"type": "web_search_preview"}],
+                "input": upit
+            },
+            timeout=45
         )
 
         if r.status_code != 200:
@@ -938,10 +1043,13 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             with st.expander("🔍 Aktualno stanje (ChatGPT web search)", expanded=True):
                 st.write(aktualno)
             # Dodaj u location_info kontekst
+            dodatak = (
+                f"\n\nPROVJERENI PODACI O OBJEKTU (dohvaceno web searchom — KORISTI OVE TOCNE PODATKE, "
+                f"ne pretpostavljaj ni zaokrugljuj brojeve):\n{aktualno}"
+            )
             if location_info:
                 location_info["dodatni_kontekst"] = (
-                    location_info.get("dodatni_kontekst", "") +
-                    f"\n\nAKTUALNO STANJE OBJEKTA (provjereno web searchom): {aktualno}"
+                    location_info.get("dodatni_kontekst", "") + dodatak
                 )
             else:
                 location_info = {
@@ -950,7 +1058,7 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
                     "okolne_ulice": "",
                     "kategorije_okolice": "",
                     "javni_prijevoz": "",
-                    "dodatni_kontekst": f"AKTUALNO STANJE OBJEKTA (provjereno web searchom): {aktualno}"
+                    "dodatni_kontekst": dodatak.strip()
                 }
         else:
             st.caption("ℹ️ ChatGPT pretraga nije vratila aktualne informacije.")
@@ -1131,3 +1239,82 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
     st.success("✅ Dokument spreman!")
+
+    # ── PROVJERA TOCNOSTI ────────────────────────────────────────────────
+    if openai_key and openai_key.strip():
+        st.divider()
+        st.subheader("🔍 Provjera točnosti elaborata")
+        st.caption("ChatGPT pretražuje web i uspoređuje generirani tekst s aktualnim podacima.")
+
+        if st.button("🔍 Provjeri točnost s ChatGPT", type="secondary"):
+            # Složi cijeli tekst elaborata u jedan string za provjeru
+            tekst_za_provjeru = []
+            for table in TABLES:
+                tekst_za_provjeru.append(f"=== {table['title']} ===")
+                for label, key in table["rows"]:
+                    val = results.get(key, "")
+                    if val and val != "[NIJE GENERIRANO" and "nije primjenjivo" not in val.lower():
+                        tekst_za_provjeru.append(f"{label}: {val}")
+            tekst_string = "\n".join(tekst_za_provjeru)
+
+            objekt_naziv = (
+                opis_objekta.strip() or
+                (location_info.get("objekt_na_adresi", "") if location_info else "") or
+                display_name
+            )
+
+            with st.spinner("🔍 ChatGPT pregledava elaborat i pretražuje web... (može potrajati 20-40s)"):
+                netocnosti = provjeri_tocnost_elaborata(
+                    openai_key, objekt_naziv, display_name, tekst_string
+                )
+
+            if not netocnosti:
+                st.warning("ChatGPT provjera nije uspjela. Pokušaj ponovo.")
+            elif "SVE OK" in netocnosti.upper():
+                st.success("✅ ChatGPT nije pronašao netočnosti — podaci su provjereni.")
+                st.write(netocnosti)
+            elif "NIJE MOGUCE PROVJERITI" in netocnosti.upper():
+                st.info("ℹ️ ChatGPT nije mogao provjeriti podatke (nema pouzdanih izvora).")
+                st.write(netocnosti)
+            else:
+                st.warning("⚠️ ChatGPT je pronašao moguće netočnosti:")
+                st.write(netocnosti)
+
+                st.session_state["elaborat_netocnosti"] = netocnosti
+                st.session_state["elaborat_tekst"] = tekst_string
+                st.session_state["elaborat_objekt"] = objekt_naziv
+
+                if st.button("✏️ Ispravi elaborat s Claudeom", type="primary", key="ispravi_btn"):
+                    with st.spinner("Claude ispravlja elaborat..."):
+                        ispravljeni = ispravi_elaborat(
+                            api_key, objekt_naziv, display_name,
+                            tekst_string, netocnosti
+                        )
+
+                    if ispravljeni:
+                        st.success("✅ Elaborat ispravljen!")
+                        st.subheader("📄 Ispravljeni tekst")
+                        st.text_area("", ispravljeni, height=400)
+
+                        # Generiraj novi Word dokument s ispravljenim tekstom
+                        doc2 = Document()
+                        h2 = doc2.add_heading("Snimka postojećeg stanja — ispravljeno", level=1)
+                        for run in h2.runs:
+                            run.font.size = Pt(14)
+                        doc2.add_paragraph(ispravljeni)
+
+                        buf2 = io.BytesIO()
+                        doc2.save(buf2)
+                        buf2.seek(0)
+
+                        st.download_button(
+                            label="💾 Preuzmi ispravljeni Word dokument",
+                            data=buf2,
+                            file_name=f"Ispravljeni_elaborat_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="download_ispravljeni"
+                        )
+                    else:
+                        st.error("Ispravak nije uspio. Pokušaj ponovo.")
+    else:
+        st.caption("ℹ️ Dodaj OpenAI API ključ u sidebar za provjeru točnosti elaborata.")
