@@ -12,6 +12,35 @@ import concurrent.futures
 st.set_page_config(page_title="Generator Opisa Lokacije", layout="wide")
 st.title("🗺️ Generator Opisa Lokacije")
 
+# Prikazi međurezultat ako postoji iz prethodne sesije koja se prekinula
+if "elaborat_results" in st.session_state and st.session_state["elaborat_results"]:
+    _res = st.session_state["elaborat_results"]
+    _dn  = st.session_state.get("elaborat_display_name", "lokacija")
+    _filled = sum(1 for t in TABLES for (_, k) in t["rows"] if _res.get(k, ""))
+    _total_keys = sum(len(t["rows"]) for t in TABLES)
+    if _filled > 0 and _filled < _total_keys:
+        with st.expander(f"⚠️ Prethodni elaborat nije dovršen ({_filled}/{_total_keys} polja) — preuzmi što je generirano", expanded=True):
+            st.caption(f"Lokacija: {_dn}")
+            _doc = Document()
+            _h = _doc.add_heading("Snimka postojećeg stanja", level=1)
+            for run in _h.runs:
+                run.font.size = Pt(14)
+            for table in TABLES:
+                add_section_table(_doc, table, _res)
+            _buf = io.BytesIO()
+            _doc.save(_buf)
+            _buf.seek(0)
+            st.download_button(
+                "💾 Preuzmi djelomični Word dokument",
+                _buf,
+                f"Djelomicni_elaborat.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="partial_download"
+            )
+            if st.button("🗑️ Obriši međurezultat", key="clear_partial"):
+                del st.session_state["elaborat_results"]
+                st.rerun()
+
 with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
@@ -923,7 +952,10 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
     done_count = 0
 
     # Sa slikama smanji paralelnost — veći payload zahtijeva više vremena
+    # Podijeli u dvije serije — svaka serija završi i spremi, pa nastavi
     max_workers = 3 if image_blocks else 5
+    serija1 = TABLES[:6]
+    serija2 = TABLES[6:]
 
     def fetch(table):
         return table["number"], call_claude_one_table(
@@ -932,17 +964,26 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             image_blocks=image_blocks
         )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(fetch, t): t for t in TABLES}
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                num, data = future.result()
-                results.update(data)
-            except Exception as e:
-                errors.append(str(e))
-            finally:
-                done_count += 1
-                progress.progress(done_count / total, text=f"Završeno {done_count}/{total} tablica...")
+    for serija_idx, serija in enumerate([serija1, serija2], 1):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fetch, t): t for t in serija}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    num, data = future.result()
+                    results.update(data)
+                except Exception as e:
+                    errors.append(str(e))
+                finally:
+                    done_count += 1
+                    progress.progress(
+                        done_count / total,
+                        text=f"Serija {serija_idx}/2 — završeno {done_count}/{total} tablica..."
+                    )
+
+        # Nakon svake serije — spremi međurezultat u session_state
+        st.session_state["elaborat_results"] = results.copy()
+        st.session_state["elaborat_errors"] = errors.copy()
+        st.session_state["elaborat_display_name"] = display_name
 
     progress.progress(1.0, text="Generiranje završeno!")
 
