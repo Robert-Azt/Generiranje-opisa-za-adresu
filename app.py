@@ -49,10 +49,30 @@ with st.sidebar:
         },
     }
     p = price_map[vizualni_mod]
-    st.caption(f"💰 Samo lokacija: **{p['samo lokacija']}**")
-    st.caption(f"💰 S identifikacijom: **{p['s identifikacijom']}**")
+    st.caption(f"💰 Samo lokacija / s opisom: **{p['samo lokacija']}**")
+    st.caption(f"💰 S web identifikacijom: **{p['s identifikacijom']}**")
     if p["napomena"]:
         st.caption(f"ℹ️ {p['napomena']}")
+
+    st.divider()
+    st.header("🏢 Opis objekta")
+    opis_objekta = st.text_area(
+        "Upiši što znaš o objektu (opcionalno)",
+        placeholder=(
+            "Primjeri:\n"
+            "PBZ banka, poslovnica, prizemna zgrada\n"
+            "Križanje Bjelovarske i Jelkovečke ulice, T-križanje\n"
+            "Park Maksimir, javna zelena površina\n"
+            "OŠ Sesvete, osnovna škola"
+        ),
+        help=(
+            "Ako popuniš ovaj opis, Claude ga koristi direktno i preskače skupu web pretragu "
+            "(štedi ~$0.30 po elaboratu). Možeš navesti: naziv objekta, tip, karakteristike."
+        ),
+        height=120
+    )
+    if opis_objekta.strip():
+        st.success("✓ Opis objekta će se koristiti umjesto web pretrage")
 
     uploaded_photos = []
     google_api_key = ""
@@ -508,10 +528,13 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
             "text": (
                 "Prva slika je satelitska/hybrid snimka lokacije s Google Mapsa "
                 "(pogled odozgo sa svim oznakama ulica i objekata). "
-                "Koristi je za: raspored ulica i krakova krizanja, sirine kolnika, "
-                "okolnu izgradnju, zelene povrsine, parkiralista, pristupne puteve. "
-                "Citaj nazive ulica i oznake objekata direktno s karte. "
-                "Ako vidis oznake objekata u okolici (skola, crkva...) — to je kontekst okoline, ne predmet elaborata."
+                "VAZNO: Pazi na TOCAN broj krakova krizanja — broji koliko ulica se spaja "
+                "(T-krizanje = 3 kraka, X-krizanje = 4 kraka). "
+                "Takoer koristi za: sirine kolnika, okolnu izgradnju, zelene povrsine, "
+                "parkiralista, pristupne puteve. Citaj nazive ulica direktno s karte. "
+                "NE navodi mjere u metrima — ne mozes precizno mjeriti sa satelita. "
+                "NE izmisljaj detalje koje ne vidis jasno na karti. "
+                "Oznake objekata u okolici su kontekst, ne predmet elaborata."
             )
         })
         blocks.append({
@@ -532,6 +555,9 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                     "tip okolne gradnje, ograde, zelenilo, nogostupe. "
                     "NE spominji da postoje fotografije, street view, snimke ni slike — "
                     "pisi kao da osobno opisujes lokaciju. "
+                    "NE procjenjuj ni navodi mjere, sirine ni dimenzije u metrima — "
+                    "ne mozes precizno mjeriti sa satelita ni fotografija. "
+                    "NE izmisljaj detalje koje ne vidis jasno — ako nesto nije vidljivo, ne spominji to. "
                     "NE spominji boje fasada, marke ili boje vozila, reklame ni natpise."
                 )
             })
@@ -545,6 +571,8 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                     "okolna gradnja, zelenilo, pristupne ulice. "
                     "NE spominji da postoje fotografije ni snimke — "
                     "pisi kao da osobno opisujes lokaciju. "
+                    "NE navodi mjere ni dimenzije u metrima — ne mozes mjeriti sa fotografija. "
+                    "NE izmisljaj detalje koje ne vidis jasno. "
                     "NE spominji boje fasada, marke vozila, reklame ni natpise."
                 )
             })
@@ -766,9 +794,24 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
 
     st.success(f"📍 {display_name}")
 
-    # Korak 1: identifikacija objekta web searchom (samo ako je odabrano)
+    # Korak 1: identifikacija objekta
     location_info = None
-    if identify_mode:
+
+    if opis_objekta.strip():
+        # Korisnik je ručno opisao objekt — preskači web search
+        st.info(f"🏢 Koristi se ručni opis objekta — web pretraga preskočena.")
+        location_info = {
+            "objekt_na_adresi": opis_objekta.strip(),
+            "tip_objekta": "misovito",
+            "okolne_ulice": "",
+            "kategorije_okolice": "",
+            "javni_prijevoz": "",
+            "dodatni_kontekst": (
+                "Korisnik je rucno opisao objekt. Koristi taj opis kao primarni izvor "
+                "informacija o objektu. Slike (ako su dostupne) koristi za opis okruzenja."
+            )
+        }
+    elif identify_mode:
         with st.spinner("🔍 Identifikacija objekta na adresi (web search)..."):
             location_info = identify_location(api_key, display_name, lat, lon, coords_input=coords_input)
         if location_info:
