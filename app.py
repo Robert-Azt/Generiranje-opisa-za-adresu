@@ -554,6 +554,8 @@ def identify_location(api_key, location_address, lat, lon, coords_input=False):
         "{",
         '  "objekt_na_adresi": "puni naziv i tip objekta (npr. PBZ banka, poslovna zgrada; ili NK Lokomotiva, novi stadion u izgradnji; ili krizanje Ozaljske i Nehajske ulice)",',
         '  "tip_objekta": "jedna kategorija: stambena zgrada / poslovni objekt / banka / sportski objekt / javna ustanova / skola / bolnica / park / prometnica-krizanje / ugostiteljski objekt / trgovina / industrijsko postrojenje / misovito",',
+        '  "cetvrt": "tocna gradska cetvrt ili naselje (npr. Tresnjevka, Maksimir, Sesvete) — provjeriti web searchom",',
+        '  "grad": "grad (npr. Zagreb, Rijeka, Split)",',
         '  "okolne_ulice": "stvarna imena ulica odvojena zarezom",',
         '  "kategorije_okolice": "genericki opis sadrzaja u okolici bez konkretnih naziva objekata",',
         '  "javni_prijevoz": "opis javnog prijevoza s linijama i stanicama",',
@@ -772,6 +774,11 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
     if location_info:
         ctx_lines.append("OBJEKT NA ADRESI: " + location_info.get("objekt_na_adresi", ""))
         ctx_lines.append("TIP OBJEKTA: " + location_info.get("tip_objekta", ""))
+        # Četvrt i grad — uzimamo iz location_info ako postoji, inače iz adrese
+        cetvrt = location_info.get("cetvrt", "") or location_info.get("suburb", "")
+        grad = location_info.get("grad", "") or location_info.get("city", "")
+        if cetvrt or grad:
+            ctx_lines.append("ADMINISTRATIVNA LOKACIJA: " + ", ".join(filter(None, [cetvrt, grad])))
         ctx_lines.append("OKOLNE ULICE: " + location_info.get("okolne_ulice", ""))
         ctx_lines.append("SADRZAJI U OKOLICI (koristiti kategorije, ne konkretna imena): " + location_info.get("kategorije_okolice", ""))
         ctx_lines.append("JAVNI PRIJEVOZ: " + location_info.get("javni_prijevoz", ""))
@@ -790,6 +797,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
         "",
         "UPUTE:",
         "- Elaborat se odnosi na objekt naveden gore - pisi specificno za taj tip objekta",
+        "- Za naziv gradske cetvrti, opcine i grada koristi ISKLJUCIVO podatke iz sekcije ADMINISTRATIVNA LOKACIJA gore. Ako ta sekcija nije popunjena, ne navoditi cetrvt — pisi samo grad.",
         "- Za nazive ulica koristi ISKLJUCIVO ulice navedene u sekciji OKOLNE ULICE gore. Ako ulica nije eksplicitno navedena u tim podacima — NE NAVODI JE i ne izmisljaj nazive. Bolje je napisati npr. ulicama u neposrednoj okolici nego izmisliti krivi naziv.",
         "- Za sadrzaje u okolici koristi opce kategorije, ne konkretna imena ugostiteljskih i slicnih objekata",
         "- 3-5 recenica po polju, cist tekst bez formatiranja",
