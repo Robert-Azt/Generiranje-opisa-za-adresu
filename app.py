@@ -98,6 +98,21 @@ with st.sidebar:
         else:
             st.warning("Unesi Google API ključ za Street View")
 
+    st.divider()
+    st.header("🔍 Provjera aktualnog stanja")
+    openai_key = st.text_input(
+        "OpenAI API Key (opcionalno)",
+        type="password",
+        help=(
+            "Koristi ChatGPT web search za provjeru aktualnog stanja objekta "
+            "(obnova, zatvoreno, promjena namjene...). "
+            "Cijena: ~$0.001–0.003 po elaboratu (zanemarivo)."
+        )
+    )
+    if openai_key:
+        st.success("✓ ChatGPT pretraga aktivna")
+        st.caption("ℹ️ gpt-4o-mini web search pretražit će aktualne vijesti o objektu")
+
 
 if "address_confirmed" not in st.session_state:
     st.session_state["address_confirmed"] = "Ilocka ulica 34, Zagreb"
@@ -331,6 +346,54 @@ def fetch_osm_context(lat, lon, radius=350):
         "pois": list(dict.fromkeys(pois))[:12],
     }
 
+
+
+def provjeri_aktualno_stanje(openai_key, objekt, adresa, lat, lon):
+    """
+    OpenAI gpt-4o-mini s web searchom — provjeri aktualno stanje objekta.
+    Vraca string s aktualnim informacijama ili None.
+    """
+    if not openai_key or not openai_key.strip():
+        return None
+
+    upit = (
+        f"Pronadi aktualne informacije (zadnjih 2 godine) o objektu: {objekt}, adresa: {adresa} "
+        f"(koordinate: {lat:.4f}, {lon:.4f}). "
+        f"Zanima me: je li objekt trenutno otvoren ili zatvoren, je li u obnovi ili rekonstrukciji, "
+        f"postoje li promjene namjene, vlasnika ili funkcije, postoje li vazne vijesti ili promjene. "
+        f"Odgovori kratko i konkretno, samo provjerene cinjenice. "
+        f"Ako nema aktualnih promjena, napisi da objekt normalno posluje."
+    )
+
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Authorization": f"Bearer {openai_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "tools": [{"type": "web_search_preview"}],
+                "input": upit
+            },
+            timeout=30
+        )
+
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        # Izvuci tekst iz output blokova
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for block in item.get("content", []):
+                    if block.get("type") == "output_text":
+                        return block.get("text", "").strip()
+        return None
+
+    except Exception:
+        return None
 
 
 def identify_location(api_key, location_address, lat, lon, coords_input=False):
@@ -860,6 +923,37 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
             )
     else:
         st.info("📍 Način rada: samo lokacija — elaborat se generira bez identifikacije objekta.")
+
+    # OpenAI provjera aktualnog stanja (ako je ključ unesen)
+    if openai_key and openai_key.strip():
+        objekt_naziv = (
+            opis_objekta.strip() or
+            (location_info.get("objekt_na_adresi", "") if location_info else "") or
+            display_name
+        )
+        with st.spinner("🔍 ChatGPT pretražuje aktualno stanje objekta..."):
+            aktualno = provjeri_aktualno_stanje(openai_key, objekt_naziv, display_name, lat, lon)
+
+        if aktualno:
+            with st.expander("🔍 Aktualno stanje (ChatGPT web search)", expanded=True):
+                st.write(aktualno)
+            # Dodaj u location_info kontekst
+            if location_info:
+                location_info["dodatni_kontekst"] = (
+                    location_info.get("dodatni_kontekst", "") +
+                    f"\n\nAKTUALNO STANJE OBJEKTA (provjereno web searchom): {aktualno}"
+                )
+            else:
+                location_info = {
+                    "objekt_na_adresi": objekt_naziv,
+                    "tip_objekta": "misovito",
+                    "okolne_ulice": "",
+                    "kategorije_okolice": "",
+                    "javni_prijevoz": "",
+                    "dodatni_kontekst": f"AKTUALNO STANJE OBJEKTA (provjereno web searchom): {aktualno}"
+                }
+        else:
+            st.caption("ℹ️ ChatGPT pretraga nije vratila aktualne informacije.")
 
     # Korak 2: OSM fallback + postavi minimalni location_info za "samo lokacija" mod
     context_str = ""
