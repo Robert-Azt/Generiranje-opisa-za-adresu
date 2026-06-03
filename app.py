@@ -534,7 +534,7 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                 "parkiralista, pristupne puteve. Citaj nazive ulica direktno s karte. "
                 "NE navodi mjere u metrima — ne mozes precizno mjeriti sa satelita. "
                 "NE izmisljaj detalje koje ne vidis jasno. "
-                "NE spominji satelitske snimke, boje krovova, boje fasada ni vizualne detalje objekata. "
+                "NE spominji satelitske snimke, boje krovova, boje fasada ni vizualne detalje objekata. SMIJE SE i MORA SE opisati: stupici/bolerdi, ograde, rampe, barijere, semafori, prometni znakovi — sve sto je relevantno za sigurnost i pristup."
                 "Oznake objekata u okolici su kontekst, ne predmet elaborata."
             )
         })
@@ -559,7 +559,7 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                     "NE procjenjuj ni navodi mjere, sirine ni dimenzije u metrima — "
                     "ne mozes precizno mjeriti sa satelita ni fotografija. "
                     "NE izmisljaj detalje koje ne vidis jasno — ako nesto nije vidljivo, ne spominji to. "
-                    "NE spominji: satelitske snimke, fotografije, street view, boje krovova, boje fasada, boje vozila, marke vozila, reklame ni natpise. "
+                    "NE spominji: satelitske snimke, fotografije, street view, boje krovova, boje fasada, boje ili marke vozila, reklame, natpise na objektima. SMIJE SE i MORA SE opisati: stupici/bolerdi, ograde, rampe, barijere, semafori, prometni znakovi, stupovi rasvjete, nadzemni vodovi — sve sto je relevantno za sigurnost i pristup lokaciji."
                 )
             })
         else:
@@ -574,7 +574,7 @@ def build_image_context_block(images_b64, source="foto", satellite_b64=None):
                     "pisi kao da osobno opisujes lokaciju. "
                     "NE navodi mjere ni dimenzije u metrima — ne mozes mjeriti sa fotografija. "
                     "NE izmisljaj detalje koje ne vidis jasno. "
-                    "NE spominji: satelitske snimke, fotografije, street view, boje krovova, boje fasada, boje vozila, marke vozila, reklame ni natpise. "
+                    "NE spominji: satelitske snimke, fotografije, street view, boje krovova, boje fasada, boje ili marke vozila, reklame, natpise na objektima. SMIJE SE i MORA SE opisati: stupici/bolerdi, ograde, rampe, barijere, semafori, prometni znakovi, stupovi rasvjete, nadzemni vodovi — sve sto je relevantno za sigurnost i pristup lokaciji."
                 )
             })
         for b64 in images_b64:
@@ -627,7 +627,7 @@ def call_claude_one_table(api_key, location_address, lat, lon, context_str, tabl
         "- 3-5 recenica po polju, cist tekst bez formatiranja",
         "- Za polja koja nisu primjenjiva za dani tip objekta napisi jednu jasnu konstatacijsku recenicu. Primjeri po tipu: PARK: instalacije = nema; zakljucavanje = javni prostor otvoren 24h; zastita = ne provodi se. KRIZANJE: vrsta materijala = asfaltni zastor; instalacije = podzemni komunalni vodovi; zakljucavanje = ne zakljucava se. BANKA/POSLOVNI OBJEKT: sva polja primjenjiva — pisi o zgradi, instalacijama, zastitarima, sefu, videonadzoru. STAMBENA ZGRADA: radni procesi = nema specificnih; tjelesna zastita = ne provodi se sustavno.",
         "- KRITИЧНО: vrijednosti u JSON-u NE smiju sadrzavati navodnike. Umjesto navodnika koristi zareze ili zagrade.",
-        "- STROGO ZABRANJENO u tekstu elaborata: spominjanje satelitskih snimki, fotografija, street viewa, boja krovova, boja fasada, boja ili marki vozila, reklama i natpisa na objektima. Pisi kao sluzbeni elaborat koji je nastao terenskim obilaskom — bez referenci na vizualne izvore.",
+        "- ZABRANJENO u tekstu: spominjanje izvora (fotografije, snimke, street view), boja krovova, fasada, vozila, reklama i natpisa. OBVEZNO opisati ako je vidljivo: stupice/bolerdi, ograde, rampe, fizicke barijere, semafori, prometni znakovi, nadzemni vodovi, stupovi rasvjete — sve sto je relevantno za sigurnost i pristup lokaciji. Pisi kao sluzbeni elaborat nastao terenskim obilaskom.",
         "- Za polja koja nisu primjenjiva za dani tip objekta napisi jednu jasnu konstatacijsku recenicu. Primjeri po tipu:\n  PARK: vrsta materijala = podloge staza i mobilijar (nema gradjevine); ostale instalacije = nema plinskih/vodovodnih; nacin zakljucavanja = javni prostor otvoren 24h; tjelesna zastita = ne provodi se.\n  KRIZANJE/PROMETNICA: vrsta materijala = asfaltni zastor kolnika, betonske plocice nogostupa; instalacije = podzemni komunalni vodovi bez nadzemne gradevine; nacin zakljucavanja = ne zakljucava se; tjelesna zastita = nema, samo prometna signalizacija.\n  BANKA ili POSLOVNI OBJEKT: sva polja su primjenjiva — pisi normalno o zgradi, instalacijama, zastitarima, sustavima videonadzora, sefu, ranom vremenu, nacinu zakljucavanja itd.\n  STAMBENA ZGRADA: radni procesi = nema specificnih radnih procesa; tjelesna zastita = ne provodi se sustavna tjelesna zastita.\n  SKOLA/BOLNICA/USTANOVA: sve tablice primjenjive, naglasi specificnosti ustanove (djeca, pacijenti, radno vrijeme).\n  Opce pravilo: ako objekt ima gradevinu — pisi o njoj. Ako nema (park, krizanje) — jednom recenicom navedi da ne postoji.",
         "",
         "Tablica: " + table["number"] + " - " + table["title"],
