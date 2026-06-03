@@ -12,35 +12,6 @@ import concurrent.futures
 st.set_page_config(page_title="Generator Opisa Lokacije", layout="wide")
 st.title("🗺️ Generator Opisa Lokacije")
 
-# Prikazi međurezultat ako postoji iz prethodne sesije koja se prekinula
-if "elaborat_results" in st.session_state and st.session_state["elaborat_results"]:
-    _res = st.session_state["elaborat_results"]
-    _dn  = st.session_state.get("elaborat_display_name", "lokacija")
-    _filled = sum(1 for t in TABLES for (_, k) in t["rows"] if _res.get(k, ""))
-    _total_keys = sum(len(t["rows"]) for t in TABLES)
-    if _filled > 0 and _filled < _total_keys:
-        with st.expander(f"⚠️ Prethodni elaborat nije dovršen ({_filled}/{_total_keys} polja) — preuzmi što je generirano", expanded=True):
-            st.caption(f"Lokacija: {_dn}")
-            _doc = Document()
-            _h = _doc.add_heading("Snimka postojećeg stanja", level=1)
-            for run in _h.runs:
-                run.font.size = Pt(14)
-            for table in TABLES:
-                add_section_table(_doc, table, _res)
-            _buf = io.BytesIO()
-            _doc.save(_buf)
-            _buf.seek(0)
-            st.download_button(
-                "💾 Preuzmi djelomični Word dokument",
-                _buf,
-                f"Djelomicni_elaborat.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                key="partial_download"
-            )
-            if st.button("🗑️ Obriši međurezultat", key="clear_partial"):
-                del st.session_state["elaborat_results"]
-                st.rerun()
-
 with st.sidebar:
     st.header("🔑 Postavke")
     api_key = st.text_input("Anthropic API Key", type="password")
@@ -794,6 +765,36 @@ nacin_rada = st.radio(
     horizontal=True,
 )
 identify_mode = nacin_rada.startswith("🏢")
+
+# Prikazi međurezultat ako postoji iz prethodne sesije koja se prekinula
+if "elaborat_results" in st.session_state and st.session_state["elaborat_results"]:
+    _res = st.session_state["elaborat_results"]
+    _dn  = st.session_state.get("elaborat_display_name", "lokacija")
+    _filled = sum(1 for t in TABLES for (_, k) in t["rows"] if _res.get(k, ""))
+    _total_keys = sum(len(t["rows"]) for t in TABLES)
+    if _filled > 0 and _filled < _total_keys:
+        with st.expander(f"⚠️ Prethodni elaborat nije dovršen ({_filled}/{_total_keys} polja) — preuzmi što je generirano", expanded=True):
+            st.caption(f"Lokacija: {_dn}")
+            _doc = Document()
+            _h = _doc.add_heading("Snimka postojećeg stanja", level=1)
+            for run in _h.runs:
+                run.font.size = Pt(14)
+            for table in TABLES:
+                add_section_table(_doc, table, _res)
+            _buf = io.BytesIO()
+            _doc.save(_buf)
+            _buf.seek(0)
+            st.download_button(
+                "💾 Preuzmi djelomični Word dokument",
+                _buf,
+                f"Djelomicni_elaborat.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="partial_download"
+            )
+            if st.button("🗑️ Obriši međurezultat", key="clear_partial"):
+                del st.session_state["elaborat_results"]
+                st.rerun()
+
 
 if st.button("🚀 Generiraj elaborat", type="primary"):
     if not api_key:
