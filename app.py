@@ -1197,6 +1197,10 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
         st.session_state["elaborat_results"] = results.copy()
         st.session_state["elaborat_errors"] = errors.copy()
         st.session_state["elaborat_display_name"] = display_name
+        st.session_state["elaborat_location_info"] = location_info
+        st.session_state["elaborat_opis_objekta"] = opis_objekta
+        st.session_state["elaborat_api_key"] = api_key
+        st.session_state["elaborat_openai_key"] = openai_key
 
     progress.progress(1.0, text="Generiranje završeno!")
 
@@ -1255,25 +1259,37 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
         st.caption("ChatGPT pretražuje web i uspoređuje generirani tekst s aktualnim podacima.")
 
         if st.button("🔍 Provjeri točnost s ChatGPT", type="secondary"):
-            # Složi cijeli tekst elaborata u jedan string za provjeru
+            # Čitaj iz session_state — jer gumb rerenderira stranicu
+            _results      = st.session_state.get("elaborat_results", results if "results" in dir() else {})
+            _display_name = st.session_state.get("elaborat_display_name", display_name if "display_name" in dir() else "")
+            _location_info = st.session_state.get("elaborat_location_info", location_info if "location_info" in dir() else None)
+            _opis         = st.session_state.get("elaborat_opis_objekta", opis_objekta if "opis_objekta" in dir() else "")
+            _openai_key   = st.session_state.get("elaborat_openai_key", openai_key if "openai_key" in dir() else "")
+            _api_key      = st.session_state.get("elaborat_api_key", api_key if "api_key" in dir() else "")
+
+            # Složi tekst elaborata
             tekst_za_provjeru = []
             for table in TABLES:
                 tekst_za_provjeru.append(f"=== {table['title']} ===")
                 for label, key in table["rows"]:
-                    val = results.get(key, "")
-                    if val and val != "[NIJE GENERIRANO" and "nije primjenjivo" not in val.lower():
+                    val = _results.get(key, "")
+                    if val and "[NIJE GENERIRANO" not in val and "nije primjenjivo" not in val.lower():
                         tekst_za_provjeru.append(f"{label}: {val}")
             tekst_string = "\n".join(tekst_za_provjeru)
 
             objekt_naziv = (
-                opis_objekta.strip() or
-                (location_info.get("objekt_na_adresi", "") if location_info else "") or
-                display_name
+                _opis.strip() or
+                (_location_info.get("objekt_na_adresi", "") if _location_info else "") or
+                _display_name
             )
+
+            if not _openai_key:
+                st.error("OpenAI ključ nije dostupan. Unesi ga u sidebar.")
+                st.stop()
 
             with st.spinner("🔍 ChatGPT pregledava elaborat i pretražuje web... (može potrajati 20-40s)"):
                 netocnosti = provjeri_tocnost_elaborata(
-                    openai_key, objekt_naziv, display_name, tekst_string
+                    _openai_key, objekt_naziv, _display_name, tekst_string
                 )
 
             if not netocnosti:
@@ -1295,7 +1311,7 @@ if st.button("🚀 Generiraj elaborat", type="primary"):
                 if st.button("✏️ Ispravi elaborat s Claudeom", type="primary", key="ispravi_btn"):
                     with st.spinner("Claude ispravlja elaborat..."):
                         ispravljeni = ispravi_elaborat(
-                            api_key, objekt_naziv, display_name,
+                            _api_key, objekt_naziv, _display_name,
                             tekst_string, netocnosti
                         )
 
